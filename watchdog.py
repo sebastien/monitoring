@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import os, time, httplib, socket, threading, signal
+import sys, os, time, datetime, httplib, socket, threading, signal
 
 # Jython has no signal module
 SIGNALS_REGISTERED  = False
@@ -43,6 +43,38 @@ def registerSignals():
 			except Exception, e:
 				sys.stderr.write("[!] watchdog.registerSignals:%s %s\n" % (sig, e))
 		SIGNALS_REGISTERED = True
+
+class Logger:
+
+	def __init__( self, stream=sys.stdout ):
+		self.stream = stream
+		self.lock    = threading.RLock()
+
+	def err( self, *message ):
+		self("[!]", *message)
+
+	def warn( self, *message ):
+		self("[-]", *message)
+
+	def info( self, *message ):
+		self("---", *message)
+	
+	def sep( self ):
+		self.lock.acquire()
+		self.stream.write("\n")
+		self.stream.flush()
+		self.lock.release()
+
+	def __call__( self, prefix, *message ):
+		self.lock.acquire()
+		message = " ".join(map(str, message))
+		n       = datetime.datetime.now()
+		self.stream.write("%04d-%02d-%02dT%02d:%02d:%02d %s %s\n" % (
+			n.year, n.month, n.day, n.hour, n.minute, n.second,
+			prefix, message
+		))
+		self.stream.flush()
+		self.lock.release()
 
 class ProcessInfo:
 	# See <http://linux.die.net/man/5/proc>
@@ -239,12 +271,14 @@ class Restart(Action):
 		self.command = command
 	
 	def run( self, event, service ):
-		os.popen(self.command)
+		#os.popen(self.command)
 		return True
 
 class Service:
 
 	def __init__( self, name, cmdline, rules=(), actions={} ):
+		self.name    = name
+		self.cmdline = cmdline
 		self.rules   = []
 		self.actions = {}
 		map(self.addRule, rules)
@@ -286,6 +320,7 @@ class Runner:
 			self.status  = self.runnable.run(*self.args)
 		except Exception, e:
 			self.status = e
+			# FIXME: Rewrite this properly
 			print "Exception occured in 'run' with:", self.runnable
 			print "-->", e
 		self.endTime = now()
@@ -293,12 +328,13 @@ class Runner:
 
 class Monitor:
 
-	FREQUENCY = Time.s(10)
+	FREQUENCY = Time.s(20)
 
 	def __init__( self, *services ):
 		self.services  = []
 		self.isRunning = False
 		self.freq      = self.FREQUENCY
+		self.logger    = Logger()
 		map(self.addService, services)
 	
 	def addService( self, service ):
@@ -308,6 +344,7 @@ class Monitor:
 		self.isRunning = True
 		while self.isRunning:
 			next_run = now() + self.freq
+			self.logger.info("Checking services: ", ", ".join(s.name for s in self.services))
 			for service in self.services:
 				for rule in service.rules:
 					to_wait = rule.shouldRunIn()
@@ -319,18 +356,22 @@ class Monitor:
 			# Sleeps waiting for the next run
 			sleep_time = max(0, next_run - now())
 			if sleep_time > 0:
-				print "Sleeping for", sleep_time / 1000.0
+				self.logger.info("Sleeping for %0.2fs" % (sleep_time / 1000.0))
 				time.sleep(sleep_time / 1000.0)
+				self.logger.sep()
 
 	def onRuleEnded( self, runner ):
 		# FIXME: Handle exception
 		rule    = runner.runnable
 		service = runner.context
 		if runner.status is False:
-			print rule, "FAILED"
+			self.logger.err("Failure on ", rule)
+			if rule.fail:
+				self.logger.info("Triggering:", ", ".join(rule.fail))
+			else:
+				self.logger.info("No failure action to trigger")
 			for action in rule.fail:
 				# NOTE: Document the protocol
-				print "Running action:", action
 				service.act(action, rule)
 
 if __name__ == "__main__":
@@ -343,8 +384,8 @@ if __name__ == "__main__":
 			cmdline = "-jar /opt/services/adkit/adkit-bidserver.jar",
 			# STEP 2: You specify rules
 			rules   = (
-				HTTP(GET="bd-1.weservemanyads.com:9030/api/ping", freq=Time.ms(1000), fail=["restart", "log", "notify"]),
-				Mem (max=Size.MB(1200), freq=Time.ms(1000),                           fail=["restart", "log", "notify"]),
+				HTTP(GET="bd-1.weservemanyads.com:9030/api/ping", freq=Time.ms(1000), fail=["restart", "log"]),
+				Mem (max=Size.MB(1200), freq=Time.ms(1000),                           fail=["restart", "log"]),
 			),
 			# STEP 2: You specify actions
 			actions = dict(
