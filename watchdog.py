@@ -1,9 +1,18 @@
 #!/usr/bin/env python
 
-import os, time, httplib, socket, threading
+import os, time, httplib, socket, threading, signal
+
+# Jython has no signal module
+SIGNALS_REGISTERED  = False
+SIGNALS_ON_SHUTDOWN = []
+try:
+	import signal
+	HAS_SIGNAL = True
+except:
+	HAS_SIGNAL = False
 
 def cat( path ):
-	f = file(path, 'rb')
+	f = file(path, 'r')
 	d = f.read()
 	f.close()
 	return d
@@ -13,6 +22,27 @@ def count( path ):
 
 def now():
 	return time.time() * 1000
+
+def shutdown(*args):
+	for callback in SIGNALS_ON_SHUTDOWN:
+		try:
+			callback()
+		except:
+			pass
+	sys.exit()
+
+def registerSignals():
+	global SIGNALS_REGISTERED
+	if HAS_SIGNAL and SIGNALS_REGISTERED:
+		# Jython does not support all signals, so we only use
+		# the available ones
+		signals = ['SIGINT',  'SIGHUP', 'SIGABRT', 'SIGQUIT', 'SIGTERM']
+		for sig in signals:
+			try:
+				signal.signal(getattr(signal,sig),shutdown)
+			except Exception, e:
+				sys.stderr.write("[!] watchdog.registerSignals:%s %s\n" % (sig, e))
+		SIGNALS_REGISTERED = True
 
 class ProcessInfo:
 	# See <http://linux.die.net/man/5/proc>
@@ -106,9 +136,10 @@ class Time:
 
 class Rule:
 
-	def __init__( self, freq ):
+	def __init__( self, freq, fail ):
 		self.lastRun = 0
 		self.freq    = freq
+		self.fail    = fail
 	
 	def shouldRunIn( self ):
 		return self.freq - (now() - self.lastRun)
@@ -119,8 +150,8 @@ class Rule:
 
 class HTTP(Rule):
 
-	def __init__( self, GET=None, POST=None, timeout=Time.s(10), freq=Time.m(1)):
-		Rule.__init__(self, freq)
+	def __init__( self, GET=None, POST=None, timeout=Time.s(10), freq=Time.m(1), fail=()):
+		Rule.__init__(self, freq, fail)
 		url    = None
 		method = None
 		if GET:
@@ -159,8 +190,8 @@ class HTTP(Rule):
 
 class Mem(Rule):
 
-	def __init__( self, max, freq=Time.m(1) ):
-		Rule.__init__(self, freq)
+	def __init__( self, max, freq=Time.m(1), fail=() ):
+		Rule.__init__(self, freq, fail)
 		self.max = max
 		pass
 
@@ -174,63 +205,100 @@ class Mem(Rule):
 class Action:
 
 	def __init__( self ):
+		pass
+	
+	def run( self, event, service ):
+		pass
 
 
 class Stdout(Action):
 
-	def __init__( self, path ):
-		self
+	def __init__( self ):
+		Action.__init__(self)
 	
-	def run( self, event=None, service=None ):
+	def run( self, event, service ):
 		print "%s: %s :: %s\n" % (now(), service and service.name, event)
 		return True
 
 class Log(Action):
 
 	def __init__( self, path ):
-		self
+		Action.__init__(self)
+		self.path = path
 	
-	def run( self, event=None, service=None ):
-		f = file(path, 'o')
-		o.write("%s: %s :: %s\n" % (now(), service and service.name, event))
+	def run( self, event, service ):
+		f = file( self.path, 'a')
+		f.write("%s: %s :: %s\n" % (now(), service and service.name, event))
 		f.flush()
 		f.close()
 		return True
 
+class Restart(Action):
+
+	def __init__( self, command ):
+		self.command = command
+	
+	def run( self, event, service ):
+		os.popen(self.command)
+		return True
+
 class Service:
 
-	def __init__( self, name, cmdline, rules=() ):
-		self.rules = []
+	def __init__( self, name, cmdline, rules=(), actions={} ):
+		self.rules   = []
+		self.actions = {}
 		map(self.addRule, rules)
+		self.actions.update(actions)
 	
 	def addRule( self, rule ):
 		self.rules.append(rule)
 
-class RuleRunner:
-	"""Wraps a Rule in a speparate thread an invoked the 'onEnded' callback once the
+	def act( self, name, event ):
+		"""Runs the action with the given name."""
+		assert self.actions.has_key(name)
+		# NOTE: Document the protocol
+		Runner(self.actions[name]).run(event, self)
+
+class Runner:
+	"""Wraps a Rule or Actionin a speparate thread an invoked the 'onEnded' callback once the
 	rule is executed."""
 
-	def __init__( self, rule, onEnded ):
+	def __init__( self, runnable, context=None ):
 		self.startTime = now()
-		self.onEnded   = onEnded
-		self.rule      = rule
-		self.status    = None
-		self._thread   = threading.Thread(target=self._run)
+		assert isinstance(runnable, Action) or isinstance(runnable, Rule)
+		self._onRunEnded = None
+		self.runnable    = runnable
+		self.context     = context
+		self.status      = None
+		self._thread     = threading.Thread(target=self._run)
 
-	def run( self ):
+	def onRunEnded( self, callback ):
+		self._onRunEnded = callback
+		return self
+
+	def run( self, *args ):
+		self.args = args
 		self._thread.start()
+		return self
 
 	def _run( self ):
-		self.status  = self.rule()
+		try:
+			self.status  = self.runnable.run(*self.args)
+		except Exception, e:
+			self.status = e
+			print "Exception occured in 'run' with:", self.runnable
+			print "-->", e
 		self.endTime = now()
-		self.onEnded(self, self.status)
+		if self._onRunEnded: self._onRunEnded(self)
 
 class Monitor:
+
+	FREQUENCY = Time.s(10)
 
 	def __init__( self, *services ):
 		self.services  = []
 		self.isRunning = False
-		self.freq      = Time.s(1)
+		self.freq      = self.FREQUENCY
 		map(self.addService, services)
 	
 	def addService( self, service ):
@@ -247,15 +315,27 @@ class Monitor:
 						next_run = min(now() + to_wait, next_run)
 					else:
 						# FIXME: Should go through a rule runner
-						print rule, rule.run()
+						Runner(rule,context=service).onRunEnded(self.onRuleEnded).run()
 			# Sleeps waiting for the next run
 			sleep_time = max(0, next_run - now())
 			if sleep_time > 0:
 				print "Sleeping for", sleep_time / 1000.0
 				time.sleep(sleep_time / 1000.0)
 
+	def onRuleEnded( self, runner ):
+		# FIXME: Handle exception
+		rule    = runner.runnable
+		service = runner.context
+		if runner.status is False:
+			print rule, "FAILED"
+			for action in rule.fail:
+				# NOTE: Document the protocol
+				print "Running action:", action
+				service.act(action, rule)
+
 if __name__ == "__main__":
 
+	registerSignals()
 	Monitor(
 		Service(
 			# STEP 1: You describe the service
@@ -265,7 +345,7 @@ if __name__ == "__main__":
 			rules   = (
 				HTTP(GET="bd-1.weservemanyads.com:9030/api/ping", freq=Time.ms(1000), fail=["restart", "log", "notify"]),
 				Mem (max=Size.MB(1200), freq=Time.ms(1000),                           fail=["restart", "log", "notify"]),
-			)
+			),
 			# STEP 2: You specify actions
 			actions = dict(
 				log     = Log     (path="bidserver.log"),
