@@ -1,15 +1,18 @@
 #!/usr/bin/env python
+# -----------------------------------------------------------------------------
+# Project           :   Watchdog
+# -----------------------------------------------------------------------------
+# Author            :   Sebastien Pierre                  <sebastien@ffctn.com>
+# License           :   Revised BSD Licensed
+# -----------------------------------------------------------------------------
+# Creation date     :   10-Feb-2010
+# Last mod.         :   08-Sep-2010
+# -----------------------------------------------------------------------------
 
-import sys, os, time, datetime, httplib, socket, threading, signal
+import re, sys, os, time, datetime
+import httplib, socket, threading, signal, subprocess, glob
 
-# Jython has no signal module
-SIGNALS_REGISTERED  = False
-SIGNALS_ON_SHUTDOWN = []
-try:
-	import signal
-	HAS_SIGNAL = True
-except:
-	HAS_SIGNAL = False
+__version__ = "0.0.1"
 
 def cat( path ):
 	f = file(path, 'r')
@@ -23,32 +26,101 @@ def count( path ):
 def now():
 	return time.time() * 1000
 
-def shutdown(*args):
-	for callback in SIGNALS_ON_SHUTDOWN:
-		try:
-			callback()
-		except:
-			pass
-	sys.exit()
+def popen( command, cwd=None ):
+	cmd = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, cwd=cwd)
+	res = cmd.stdout.read()
+	cmd.wait()
+	return res
 
-def registerSignals():
-	global SIGNALS_REGISTERED
-	if HAS_SIGNAL and SIGNALS_REGISTERED:
-		# Jython does not support all signals, so we only use
-		# the available ones
-		signals = ['SIGINT',  'SIGHUP', 'SIGABRT', 'SIGQUIT', 'SIGTERM']
-		for sig in signals:
+def timestamp():
+	n = datetime.datetime.now()
+	return "%04d-%02d-%02dT%02d:%02d:%02d" % (
+		n.year, n.month, n.day, n.hour, n.minute, n.second
+	)
+
+# -----------------------------------------------------------------------------
+#
+# SIGNAL HANDLING
+#
+# -----------------------------------------------------------------------------
+
+class Signals:
+
+	SINGLETON = None
+
+	@classmethod
+	def Setup( self ):
+		"""Sets up the shutdown signal handlers."""
+		if self.SINGLETON is None: self.SINGLETON = Signals()
+		self.SINGLETON.setup()
+	
+	@classmethod
+	def OnShutdown( self, callback ):
+		"""Registers a new ."""
+		if self.SINGLETON is None: self.SINGLETON = Signals()
+		assert not self.SINGLETON.signalsRegistered, "OnShutdown must be called before Setup."
+		self.SINGLETON.onShutdown.append(callback)
+
+	def __init__( self ):
+		self.signalsRegistered  = []
+		self.onShutdown         = []
+		try:
+			import signal
+			self.hasSignalModule = True
+		except:
+			self.hasSignalModule = False
+
+	def setup( self ):
+		"""Sets up the signals."""
+		if self.hasSignalModule and not self.signalsRegistered:
+			# Jython does not support all signals, so we only use
+			# the available ones
+			signals = ['SIGINT',  'SIGHUP', 'SIGABRT', 'SIGQUIT', 'SIGTERM']
+			import signal
+			for sig in signals:
+				try:
+					signal.signal(getattr(signal,sig), self._shutdown)
+					self.signalsRegistered.append(sig)
+				except Exception, e:
+					Logger.Error("[!] watchdog.Signals._registerSignals:%s %s\n" % (sig, e))
+
+	def _shutdown(self, *args):
+		for callback in self.onShutdown:
 			try:
-				signal.signal(getattr(signal,sig),shutdown)
-			except Exception, e:
-				sys.stderr.write("[!] watchdog.registerSignals:%s %s\n" % (sig, e))
-		SIGNALS_REGISTERED = True
+				callback()
+			except:
+				pass
+		sys.exit()
+
+# -----------------------------------------------------------------------------
+#
+# LOGGER
+#
+# -----------------------------------------------------------------------------
 
 class Logger:
 
-	def __init__( self, stream=sys.stdout ):
-		self.stream = stream
+	SINGLETON = None
+
+	@classmethod
+	def I( self ):
+		if self.SINGLETON is None: self.SINGLETON = Logger()
+		return self.SINGLETON
+	@classmethod
+	def Err ( self, *message ): self.I().err(*message)
+	@classmethod
+	def Warn( self, *message ): self.I().warn(*message)
+	@classmethod
+	def Info( self, *message ): self.I().info(*message)
+	@classmethod
+	def Sep( self ):  self.I().sep()
+	@classmethod
+	def Output( self, *message ): self.I().output(*message)
+
+	def __init__( self, stream=sys.stdout, prefix="" ):
+		self.stream  = stream
 		self.lock    = threading.RLock()
+		self.prefix  = prefix
 
 	def err( self, *message ):
 		self("[!]", *message)
@@ -58,6 +130,18 @@ class Logger:
 
 	def info( self, *message ):
 		self("---", *message)
+
+	def output( self, *message ):
+		return
+		res = []
+		for line in message:
+			for subline in message.split("\n"):
+				res.append(">>> " + subline + "\n")
+		self.lock.acquire()
+		for line in res:
+			self.stream.write(line)
+		self.stream.flush()
+		self.lock.release()
 	
 	def sep( self ):
 		self.lock.acquire()
@@ -68,27 +152,62 @@ class Logger:
 	def __call__( self, prefix, *message ):
 		self.lock.acquire()
 		message = " ".join(map(str, message))
-		n       = datetime.datetime.now()
-		self.stream.write("%04d-%02d-%02dT%02d:%02d:%02d %s %s\n" % (
-			n.year, n.month, n.day, n.hour, n.minute, n.second,
-			prefix, message
+		self.stream.write("%s %s%s %s\n" % (
+			timestamp(), self.prefix, prefix, message
 		))
 		self.stream.flush()
 		self.lock.release()
 
-class ProcessInfo:
+# -----------------------------------------------------------------------------
+#
+# PROCESS INFORMATION
+#
+# -----------------------------------------------------------------------------
+
+class Process:
 	# See <http://linux.die.net/man/5/proc>
+
+	RE_PS_OUTPUT = re.compile("^%s$" % ("\s+".join([
+		"[^.]+",  "(\d+)", "(\d+)", "\d+", "\d+", "\d+", "\d+", "\d?\d\:\d\d", "[^ ]+", "\d\d\:\d\d\:\d\d", "(.+)"
+	])))
+
+	@classmethod
+	def Find( self, command, compare=(lambda a,b: a == b) ):
+		# FIXME: Probably better to direcly use List()
+		# The output looks like this
+		# 1000      2446     1 12 84048 82572   0 14:02 ?        00:04:08 python /usr/lib/exaile/exaile.py --datadir=/usr/share/exaile/data --startgui
+		# 1000      2472     1  0  2651  3496   0 14:02 ?        00:00:00 /usr/lib/gvfs/gvfsd-http --spawner :1.6 /org/gtk/gvfs/exec_spaw/2
+		# 107       2473     1  0  4274  4740   0 14:02 ?        00:00:00 /usr/sbin/hald
+		# root      2474  2473  0   883  1292   1 14:02 ?        00:00:00 hald-runner
+		# root      2503  2474  0   902  1264   1 14:02 ?        00:00:00 hald-addon-input: Listening on /dev/input/event10 /dev/input/event4 /dev/input/event11 /dev/input/event9 /dev/in
+		# root      2508  2474  0   902  1228   0 14:02 ?        00:00:00 /usr/lib/hal/hald-addon-rfkill-killswitch
+		# root      2516  2474  0   902  1232   1 14:02 ?        00:00:00 /usr/lib/hal/hald-addon-leds
+
+		# Note: we skip the header and the trailing EOL
+		for line in popen("ps -AF").split("\n")[1:-1]:
+			match = self.RE_PS_OUTPUT.match(line)
+			if match:
+				pid  = match.group(1)
+				ppid = match.group(2)
+				cmd  = match.group(3)
+				if compare(command, cmd):
+					return (pid, ppid, cmd)
+			else:
+				Logger.Error("Problem with PS output !: " + repr(line))
+		return None
 
 	@classmethod
 	def List( self ):
 		"""Returns a map of pid to cmdline"""
 		res = {}
 		for p in glob.glob("/proc/*/cmdline"):
-			res[int(p.split("/")[2])] = cat(p)
+			process = p.split("/")[2]
+			if process != "self":
+				res[int(process)] = cat(p)
 		return res
 		
 	@classmethod
-	def GetWith( self, expression ):
+	def GetWith( self, expression, compare=(lambda a,b:a == b) ):
 		"""Returns a list of all processes that contain the expression
 		in their command line."""
 		res = []
@@ -105,11 +224,24 @@ class ProcessInfo:
 			res[name.lower()] = value.strip()
 		return res
 
+	
+	@classmethod
+	def Start( self, command, cwd=None ):
+		# FIXME: Not sure if we need something like & at the end
+		command += ""
+		Logger.Info("Starting process: " + repr(command))
+		popen(command, cwd)
+
+	@classmethod
+	def Kill( self, pid ):
+		Logger.Info("Killing process: " + repr(pid))
+		popen("kill -9 %s" % (pid))
+
 	def __init__( self ):
 		self.probeStart = 0
 
 	def info( self, pid ):
-		status = ProcessInfo.Status(pid)
+		status = Process.Status(pid)
 		if self.probeStart == 0:
 			self.probeStart = now()
 		if os.path.exists("/proc/%d"):
@@ -121,7 +253,7 @@ class ProcessInfo:
 			)
 		else:
 			self.probeEnd = now()
-			status = ProcessInfo.Status("/proc/%d/status" % (pid)),
+			status = Process.Status("/proc/%d/status" % (pid)),
 			# FIXME: Add process start time, end time, cpu %
 			dict(
 				pid      = pid,
@@ -166,12 +298,88 @@ class Time:
 	def ms(self, t ):
 		return t
 
+
+# -----------------------------------------------------------------------------
+#
+# ACTIONS
+#
+# -----------------------------------------------------------------------------
+
+class Action:
+
+	def __init__( self ):
+		pass
+	
+	def run( self, monitor, service, rule, runner ):
+		pass
+
+class Log(Action):
+
+	def __init__( self, path=None, stdout=True ):
+		Action.__init__(self)
+		self.path   = path
+		self.stdout = stdout
+	
+	def preamble( self, monitor, service, rule, runner ):
+		return "%s %s[%d]" % (timestamp(), service and service.name, runner.iteration)
+
+	def successMessage( self, monitor, service, rule, runner ):
+		return "%s --- %s succeeded (in %0.2fms)" % (self.preamble(monitor,service,rule,runner), runner.runnable, runner.duration)
+
+	def failureMessage( self, monitor, service, rule, runner ):
+		return "%s [!] %s of %s (in %0.2fms)" % (self.preamble(monitor,service,rule,runner), runner.result, runner.runnable, runner.duration)
+	
+	def run( self, monitor, service, rule, runner):
+		if runner.hasFailed():
+			msg = self.failureMessage(monitor, service, rule, runner) + "\n"
+		else:
+			msg = self.successMessage(monitor, service, rule, runner) + "\n"
+		if self.stdout:
+			sys.stdout.write(msg)
+		if self.path:
+			f = file( self.path, 'a')
+			f.write(msg)
+			f.flush()
+			f.close()
+		return True
+
+class Restart(Action):
+
+	def __init__( self, command, cwd=None ):
+		self.command = command
+		self.cwd     = cwd
+	
+	def run( self, monitor, service, rule, runner ):
+		process_info = Process.Find(self.command)
+		if not process_info:
+			Process.Start(self.command, cwd=cwd)
+		else:
+			pid, ppid, cmd = process_info
+			Process.Kill(pid=pid)
+		return True
+
+# -----------------------------------------------------------------------------
+#
+# RULES
+#
+# -----------------------------------------------------------------------------
+
+class Failure:
+
+	def __init__(self, message, value=None):
+		self.message = message
+		self.value   = value
+	
+	def __str__( self ):
+		return self.message
+
 class Rule:
 
-	def __init__( self, freq, fail ):
+	def __init__( self, freq, fail, success=() ):
 		self.lastRun = 0
 		self.freq    = freq
 		self.fail    = fail
+		self.success = success
 	
 	def shouldRunIn( self ):
 		return self.freq - (now() - self.lastRun)
@@ -182,8 +390,8 @@ class Rule:
 
 class HTTP(Rule):
 
-	def __init__( self, GET=None, POST=None, timeout=Time.s(10), freq=Time.m(1), fail=()):
-		Rule.__init__(self, freq, fail)
+	def __init__( self, GET=None, POST=None, timeout=Time.s(10), freq=Time.m(1), fail=(), success=()):
+		Rule.__init__(self, freq, fail, success)
 		url    = None
 		method = None
 		if GET:
@@ -194,6 +402,7 @@ class HTTP(Rule):
 			method = "POST"
 		if url.startswith("http://"): url = url[6:]
 		server, uri  = url.split("/",  1)
+		if not uri.startswith("/"): uri = "/" + uri
 		server, port = server.split(":", 1)
 		self.server  = server
 		self.port    = port
@@ -210,20 +419,20 @@ class HTTP(Rule):
 			conn.request(self.method, self.uri, self.body, self.headers or {})
 			resp = conn.getresponse()
 			res  = resp.read()
-		except socket.error:
-			return False
+		except socket.error, e:
+			return Failure("Socket error: %s" % (e))
 		if resp.status >= 400:
-			return False
+			return Failure("HTTP response has error status %s" % (resp.status))
 		else:
 			return True
 	
 	def __repr__( self ):
-		return "HTTP(%s=\"%s:%s/%s\",freq=Time.ms(%s))" % (self.method, self.server, self.port, self.uri, self.freq)
+		return "HTTP(%s=\"%s:%s/%s\",timeout=%s)" % (self.method, self.server, self.port, self.uri, self.timeout)
 
 class Mem(Rule):
 
-	def __init__( self, max, freq=Time.m(1), fail=() ):
-		Rule.__init__(self, freq, fail)
+	def __init__( self, max, freq=Time.m(1), fail=(), success=() ):
+		Rule.__init__(self, freq, fail, success)
 		self.max = max
 		pass
 
@@ -234,58 +443,29 @@ class Mem(Rule):
 	def __repr__( self ):
 		return "Mem(max=Size.b(%s), freq.Time.ms(%s))" % (self.max, self.freq)
 
-class Action:
-
-	def __init__( self ):
-		pass
-	
-	def run( self, event, service ):
-		pass
-
-
-class Stdout(Action):
-
-	def __init__( self ):
-		Action.__init__(self)
-	
-	def run( self, event, service ):
-		print "%s: %s :: %s\n" % (now(), service and service.name, event)
-		return True
-
-class Log(Action):
-
-	def __init__( self, path ):
-		Action.__init__(self)
-		self.path = path
-	
-	def run( self, event, service ):
-		f = file( self.path, 'a')
-		f.write("%s: %s :: %s\n" % (now(), service and service.name, event))
-		f.flush()
-		f.close()
-		return True
-
-class Restart(Action):
-
-	def __init__( self, command ):
-		self.command = command
-	
-	def run( self, event, service ):
-		#os.popen(self.command)
-		return True
+# -----------------------------------------------------------------------------
+#
+# SERVICE
+#
+# -----------------------------------------------------------------------------
 
 class Service:
 
-	def __init__( self, name, cmdline, rules=(), actions={} ):
+	# FIXME: Add a check() method that checks that actions exists for rules
+
+	def __init__( self, name, monitor=(), actions={} ):
 		self.name    = name
-		self.cmdline = cmdline
 		self.rules   = []
 		self.actions = {}
-		map(self.addRule, rules)
+		map(self.addRule, monitor)
 		self.actions.update(actions)
 	
 	def addRule( self, rule ):
 		self.rules.append(rule)
+	
+	def getAction( self, name ):
+		"""Returns the action object with the given name."""
+		return self.actions[name]
 
 	def act( self, name, event ):
 		"""Runs the action with the given name."""
@@ -293,22 +473,35 @@ class Service:
 		# NOTE: Document the protocol
 		Runner(self.actions[name]).run(event, self)
 
-class Runner:
-	"""Wraps a Rule or Actionin a speparate thread an invoked the 'onEnded' callback once the
-	rule is executed."""
+# -----------------------------------------------------------------------------
+#
+# RUNNER
+#
+# -----------------------------------------------------------------------------
 
-	def __init__( self, runnable, context=None ):
-		self.startTime = now()
+class Runner:
+	"""Wraps a Rule or Action in a separate thread an invoked the 'onEnded'
+	callback once the rule is executed."""
+
+	def __init__( self, runnable, context=None, iteration=None ):
 		assert isinstance(runnable, Action) or isinstance(runnable, Rule)
-		self._onRunEnded = None
-		self.runnable    = runnable
-		self.context     = context
-		self.status      = None
-		self._thread     = threading.Thread(target=self._run)
+		self._onRunEnded  = None
+		self.runnable     = runnable
+		self.context      = context
+		self.result       = None
+		self.iteration    = iteration
+		self.creationTime = now()
+		self.startTime    = -1
+		self.endTime      = -1
+		self.duration     = 0
+		self._thread      = threading.Thread(target=self._run)
 
 	def onRunEnded( self, callback ):
 		self._onRunEnded = callback
 		return self
+
+	def hasFailed( self ):
+		return not (self.result is True)
 
 	def run( self, *args ):
 		self.args = args
@@ -316,31 +509,41 @@ class Runner:
 		return self
 
 	def _run( self ):
+		self.startTime = now()
 		try:
-			self.status  = self.runnable.run(*self.args)
+			self.result   = self.runnable.run(*self.args)
 		except Exception, e:
-			self.status = e
+			self.result = e
 			# FIXME: Rewrite this properly
 			print "Exception occured in 'run' with:", self.runnable
 			print "-->", e
 		self.endTime = now()
+		self.duration = self.endTime - self.startTime
 		if self._onRunEnded: self._onRunEnded(self)
+
+# -----------------------------------------------------------------------------
+#
+# MONITOR
+#
+# -----------------------------------------------------------------------------
 
 class Monitor:
 
-	FREQUENCY = Time.s(20)
+	FREQUENCY = Time.s(5)
 
 	def __init__( self, *services ):
 		self.services  = []
 		self.isRunning = False
 		self.freq      = self.FREQUENCY
-		self.logger    = Logger()
+		self.logger    = Logger(prefix="watchdog ")
+		self.iteration = 0
 		map(self.addService, services)
 	
 	def addService( self, service ):
 		self.services.append(service)
-	
+
 	def run( self ):
+		Signals.Setup()
 		self.isRunning = True
 		while self.isRunning:
 			next_run = now() + self.freq
@@ -352,7 +555,8 @@ class Monitor:
 						next_run = min(now() + to_wait, next_run)
 					else:
 						# FIXME: Should go through a rule runner
-						Runner(rule,context=service).onRunEnded(self.onRuleEnded).run()
+						Runner(rule,context=service,iteration=self.iteration).onRunEnded(self.onRuleEnded).run()
+			self.iteration += 1
 			# Sleeps waiting for the next run
 			sleep_time = max(0, next_run - now())
 			if sleep_time > 0:
@@ -361,47 +565,23 @@ class Monitor:
 				self.logger.sep()
 
 	def onRuleEnded( self, runner ):
+		"""Callback bound to 'Runner.onRunEnded', trigerred once a rule was executed.
+		If the rule failed, actions will be executed."""
 		# FIXME: Handle exception
 		rule    = runner.runnable
 		service = runner.context
-		if runner.status is False:
+		if runner.result is True:
+			if rule.success:
+				self.logger.info("Success actions:", ", ".join(rule.success))
+				for action in rule.success:
+					service.getAction(action).run(runner, service, rule, runner)
+		else:
 			self.logger.err("Failure on ", rule)
 			if rule.fail:
-				self.logger.info("Triggering:", ", ".join(rule.fail))
+				self.logger.info("Failure actions:", ", ".join(rule.fail))
+				for action in rule.fail:
+					service.getAction(action).run(runner, service, rule, runner)
 			else:
 				self.logger.info("No failure action to trigger")
-			for action in rule.fail:
-				# NOTE: Document the protocol
-				service.act(action, rule)
 
-if __name__ == "__main__":
-
-	registerSignals()
-	Monitor(
-		Service(
-			# STEP 1: You describe the service
-			name    = "bidserver",
-			cmdline = "-jar /opt/services/adkit/adkit-bidserver.jar",
-			# STEP 2: You specify rules
-			rules   = (
-				HTTP(GET="bd-1.weservemanyads.com:9030/api/ping", freq=Time.ms(1000), fail=["restart", "log"]),
-				Mem (max=Size.MB(1200), freq=Time.ms(1000),                           fail=["restart", "log"]),
-			),
-			# STEP 2: You specify actions
-			actions = dict(
-				log     = Log     (path="bidserver.log"),
-				notify  = Stdout  (),
-				restart = Restart (command="supervisorctl restart adkit-bidserver")
-			)
-		),
-		Service(
-			name    = "pamela-web",
-			cmdline = "pamela-web",
-			rules   = (
-				HTTP(GET="localhost:8000/", freq=Time.ms(1000)),
-				Mem (max=Size.MB(1200), freq=Time.ms(1000)),
-			)
-		)
-	).run()
-
-# EOF
+# EOF - vim: tw=80 ts=4 sw=4 noet
