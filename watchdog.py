@@ -9,7 +9,7 @@
 # Last mod.         :   09-Sep-2010
 # -----------------------------------------------------------------------------
 
-import re, sys, os, time, datetime
+import re, sys, os, time, datetime, stat
 import httplib, socket, threading, signal, subprocess, glob
 
 # FIXME: Prevent flooding of taskrunner, ie. when tasks take longer than
@@ -19,7 +19,8 @@ import httplib, socket, threading, signal, subprocess, glob
 
 __version__ = "0.9.0"
 
-RE_SPACES = re.compile("\s+")
+RE_SPACES  = re.compile("\s+")
+RE_INTEGER = re.compile("\d+")
 
 def cat( path ):
 	f = file(path, 'r')
@@ -28,7 +29,7 @@ def cat( path ):
 	return d
 
 def count( path ):
-	return len(os.path.listdir(path))
+	return len(os.listdir(path))
 
 def now():
 	return time.time() * 1000
@@ -89,7 +90,7 @@ class Signals:
 					signal.signal(getattr(signal,sig), self._shutdown)
 					self.signalsRegistered.append(sig)
 				except Exception, e:
-					Logger.Error("[!] watchdog.Signals._registerSignals:%s %s\n" % (sig, e))
+					Logger.Err("[!] watchdog.Signals._registerSignals:%s %s\n" % (sig, e))
 
 	def _shutdown(self, *args):
 		for callback in self.onShutdown:
@@ -200,7 +201,7 @@ class Process:
 				if compare(command, cmd):
 					return (pid, ppid, cmd)
 			else:
-				Logger.Error("Problem with PS output !: " + repr(line))
+				Logger.Err("Problem with PS output !: " + repr(line))
 		return None
 
 	@classmethod
@@ -219,14 +220,16 @@ class Process:
 		in their command line."""
 		res = []
 		for pid, cmdline in self.List().items():
-			if cmdline.find(expression) != -1:
+			if compare(cmdline, expression):
 				res.append(pid)
 		return res
 
 	@classmethod
 	def Status( self,pid ):
 		res = {}
+		pid = int(pid)
 		for line in cat("/proc/%d/status" % (pid)).split("\n"):
+			if not line: continue
 			name, value = line.split(":", 1)
 			res[name.lower()] = value.strip()
 		return res
@@ -244,14 +247,11 @@ class Process:
 		Logger.Info("Killing process: " + repr(pid))
 		popen("kill -9 %s" % (pid))
 
-	def __init__( self ):
-		self.probeStart = 0
-
-	def info( self, pid ):
-		status = Process.Status(pid)
-		if self.probeStart == 0:
-			self.probeStart = now()
-		if os.path.exists("/proc/%d"):
+	@classmethod
+	def Info( self, pid ):
+		status   = Process.Status(pid)
+		proc_pid = "/proc/%d" % (pid)
+		if not os.path.exists(proc_pid):
 			dict(
 				pid         = pid,
 				exists      = False,
@@ -259,10 +259,11 @@ class Process:
 				probeEnd    = self.lastProbe
 			)
 		else:
-			self.probeEnd = now()
-			status = Process.Status("/proc/%d/status" % (pid)),
+			status  = Process.Status(pid)
+			started = os.stat(proc_pid)[stat.ST_MTIME]
+			running = time.time() - started
 			# FIXME: Add process start time, end time, cpu %
-			dict(
+			return dict(
 				pid      = pid,
 				exists   = True,
 				fd       = count("/proc/%d/fd"      % (pid)),
@@ -271,9 +272,8 @@ class Process:
 				cmdline  = cat  ("/proc/%d/cmdline" % (pid)),
 				fdsize   = status["fdsize"],
 				vmsize   = status["vmsize"],
-				vmpeak   = status["vmspeak"],
-				probeStart = self.firstProbe,
-				probeEnd   = self.lastProbe
+				started  = started,
+				running  = running
 			)
 
 class System:
@@ -671,7 +671,7 @@ class Monitor:
 				for action in rule.success:
 					service.getAction(action).run(runner, service, rule, runner)
 		elif isinstance(runner.result, Failure):
-			self.logger.err("Failure on ", rule)
+			self.logger.err("Failure on ", rule, ":", runner.result)
 			if rule.fail:
 				#self.logger.info("Failure actions:", ", ".join(rule.fail))
 				for action in rule.fail:

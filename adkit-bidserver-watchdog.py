@@ -22,13 +22,13 @@ class LogTime(Log):
 
 class LogResult(Log):
 
-	def __init__( self, message, path=None, stdout=True, processor=lambda _:_ ):
+	def __init__( self, message, path=None, stdout=True, process=lambda _:_ ):
 		Log.__init__(self, path, stdout)
 		self.message   = message
-		self.processor = processor
+		self.processor = process
 
 	def successMessage( self, monitor, service, rule, runner ):
-		return "%s %s %s" % (self.preamble(monitor, service, rule, runner), self.message, self.processor(runner.result))
+		return "%s %s %s" % (self.preamble(monitor, service, rule, runner), self.message, self.processor(runner.result.value))
 
 class MeasureBandwidth(Rule):
 
@@ -42,16 +42,42 @@ class MeasureBandwidth(Rule):
 			return Success(res[self.interface])
 		else:
 			return Failure("Cannot find data for interface: %s" % (self.interface))
-	
+
+class ProcInfo(Rule):
+
+	def __init__( self, command, freq, fail=(), success=() ):
+		Rule.__init__(self, freq, fail, success)
+		self.command = command
+
+	def run( self ):
+		pid =  Process.GetWith(self.command, lambda a,b:a.find(b) != -1)
+		if pid:
+			pid  = pid[0]
+			info = Process.Info(pid)
+			if info["exists"]:
+				return Success(info)
+			else:
+				return Failure("Process %s does not exists anymore" % (pid))
+		else:
+			return Failure("Cannot find process with command like: %s" % (self.command))
+
+
 Monitor (
 
 	Service(
 		name    = "bidserver-stats",
 		monitor = (
 			Delta(
-				MeasureBandwidth("eth0", freq=Time.ms(2000)),
+				MeasureBandwidth("eth0", freq=Time.ms(1000)),
 				extract = lambda v:v["total"]["bytes"]/1000.0/1000.0,
 				success = [LogResult("STAT:bidserver.eth1.total=")]
+			),
+			ProcInfo(command="bidserver.jar", freq=Time.ms(1000),
+				success = (
+					LogResult("STAT:bidserver.process.running=", process=lambda v:v["running"]),
+					LogResult("STAT:bidserver.process.fd=", process=lambda v:v["fd"]),
+					LogResult("STAT:bidserver.process.threads=", process=lambda v:v["threads"]),
+				)
 			),
 		)
 	),
