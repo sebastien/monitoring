@@ -6,13 +6,20 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   10-Feb-2010
-# Last mod.         :   08-Sep-2010
+# Last mod.         :   09-Sep-2010
 # -----------------------------------------------------------------------------
 
 import re, sys, os, time, datetime
 import httplib, socket, threading, signal, subprocess, glob
 
-__version__ = "0.0.1"
+# FIXME: Prevent flooding of taskrunner, ie. when tasks take longer than
+# their duration
+
+# FIXME: Ensure re-ordering of logging
+
+__version__ = "0.9.0"
+
+RE_SPACES = re.compile("\s+")
 
 def cat( path ):
 	f = file(path, 'r')
@@ -269,6 +276,45 @@ class Process:
 				probeEnd   = self.lastProbe
 			)
 
+class System:
+	
+	@classmethod
+	def GetInterfaceStats( self ):
+		# $/proc/net$ sudo cat dev
+		# Inter-|   Receive                                                |  Transmit
+		#  face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+		#     lo:454586083  954504    0    0    0     0          0         0 454586083  954504    0    0    0     0       0          0
+		#   eth0:55735297   85080    0    0    0     0          0         0  5428643   67978    0    0    0     0       0          0
+		#   eth1:3300079052153 11645531967    0 8098    0     0          0         0 3409466791555 6131411252    0    0    0     0       0          0
+		#  edge0:       0       0    0    0    0     0          0         0     9763      87    0    0    0     0       0          0
+		res = {}
+		for line in cat("/proc/net/dev").split("\n")[2:-1]:
+			interface, stats = RE_SPACES.sub(" ", line).strip().split(":",1)
+			stats            = map(long, stats.strip().split(" "))
+			rx_bytes, rx_pack, rx_errs, rx_drop, rx_fifo, rx_frame, rx_compr, rx_multicast, \
+			tx_bytes, tx_pack, tx_errs, tx_drop, tx_fifo, tx_colls, tx_carrier, tx_compressed = stats
+			res[interface] = {
+				"rx" : dict (
+					bytes=rx_bytes,
+					packets=rx_pack,
+					errors=rx_errs,
+					drop=rx_drop
+				),
+				"tx" : dict (
+					bytes=tx_bytes,
+					packets=tx_pack,
+					errors=tx_errs,
+					drop=tx_drop
+				),
+				"total" : dict (
+					bytes  =tx_bytes + rx_bytes,
+					packets=tx_pack  + rx_pack,
+					errors =tx_errs  + rx_errs,
+					drop   =tx_drop  + rx_drop
+				)
+			}
+		return res
+
 class Size:
 
 	@classmethod
@@ -297,6 +343,33 @@ class Time:
 	@classmethod
 	def ms(self, t ):
 		return t
+
+# -----------------------------------------------------------------------------
+#
+# RESULTS ENCAPSULATION
+#
+# -----------------------------------------------------------------------------
+
+class Success:
+
+	def __init__(self, value=True, message=None):
+		self.message = message
+		self.value   = value
+	
+	def __str__( self ):
+		return str(self.value)
+
+class Failure:
+
+	def __init__(self, message="Failure", value=None):
+		self.message = message
+		self.value   = value
+	
+	def __str__( self ):
+		return str(self.message)
+
+SUCCESS = Success()
+FAILURE = Failure()
 
 
 # -----------------------------------------------------------------------------
@@ -364,15 +437,6 @@ class Restart(Action):
 #
 # -----------------------------------------------------------------------------
 
-class Failure:
-
-	def __init__(self, message, value=None):
-		self.message = message
-		self.value   = value
-	
-	def __str__( self ):
-		return self.message
-
 class Rule:
 
 	def __init__( self, freq, fail, success=() ):
@@ -382,11 +446,12 @@ class Rule:
 		self.success = success
 	
 	def shouldRunIn( self ):
-		return self.freq - (now() - self.lastRun)
+		since_last_run = now() - self.lastRun
+		return self.freq - since_last_run 
 
 	def run( self ):
 		self.lastRun = now()
-		return True
+		return Success()
 
 class HTTP(Rule):
 
@@ -415,6 +480,7 @@ class HTTP(Rule):
 	def run( self ):
 		Rule.run(self)
 		conn = httplib.HTTPConnection(self.server, self.port, timeout=self.timeout)
+		res  = None
 		try:
 			conn.request(self.method, self.uri, self.body, self.headers or {})
 			resp = conn.getresponse()
@@ -424,7 +490,7 @@ class HTTP(Rule):
 		if resp.status >= 400:
 			return Failure("HTTP response has error status %s" % (resp.status))
 		else:
-			return True
+			return Success(res)
 	
 	def __repr__( self ):
 		return "HTTP(%s=\"%s:%s/%s\",timeout=%s)" % (self.method, self.server, self.port, self.uri, self.timeout)
@@ -438,10 +504,34 @@ class Mem(Rule):
 
 	def run( self ):
 		Rule.run(self)
-		return True
+		return Success()
 
 	def __repr__( self ):
 		return "Mem(max=Size.b(%s), freq.Time.ms(%s))" % (self.max, self.freq)
+
+class Delta(Rule):
+	"""Executes a rule and extracts a numerical value out of it, successfully returning
+	when at least two values have been extracted from the given rule."""
+
+	def __init__( self, rule, extract=lambda _:_, fail=(), success=() ):
+		Rule.__init__(self, rule.freq, fail, success)
+		self.extractor = extract
+		self.rule      = rule
+		self.previous  = None
+
+	def run( self ):
+		res = self.rule.run()
+		if isinstance(res, Success):
+			value = self.extractor(res.value)
+			if self.previous is None:
+				self.previous = value
+				return Failure("Not enough history yet")
+			else:
+				delta = value - self.previous
+				self.previous = value
+				return Success(delta)
+		else:
+			return res
 
 # -----------------------------------------------------------------------------
 #
@@ -463,9 +553,12 @@ class Service:
 	def addRule( self, rule ):
 		self.rules.append(rule)
 	
-	def getAction( self, name ):
+	def getAction( self, nameOrAction ):
 		"""Returns the action object with the given name."""
-		return self.actions[name]
+		if isinstance(nameOrAction, Action):
+			return nameOrAction
+		else:
+			return self.actions[nameOrAction]
 
 	def act( self, name, event ):
 		"""Runs the action with the given name."""
@@ -501,7 +594,7 @@ class Runner:
 		return self
 
 	def hasFailed( self ):
-		return not (self.result is True)
+		return not (isinstance(self.result, Success))
 
 	def run( self, *args ):
 		self.args = args
@@ -511,12 +604,11 @@ class Runner:
 	def _run( self ):
 		self.startTime = now()
 		try:
-			self.result   = self.runnable.run(*self.args)
+			self.result = self.runnable.run(*self.args)
 		except Exception, e:
 			self.result = e
 			# FIXME: Rewrite this properly
-			print "Exception occured in 'run' with:", self.runnable
-			print "-->", e
+			Logger.Err("Exception occured in 'run' with:", self.runnable, e)
 		self.endTime = now()
 		self.duration = self.endTime - self.startTime
 		if self._onRunEnded: self._onRunEnded(self)
@@ -547,7 +639,6 @@ class Monitor:
 		self.isRunning = True
 		while self.isRunning:
 			next_run = now() + self.freq
-			self.logger.info("Checking services: ", ", ".join(s.name for s in self.services))
 			for service in self.services:
 				for rule in service.rules:
 					to_wait = rule.shouldRunIn()
@@ -556,13 +647,17 @@ class Monitor:
 					else:
 						# FIXME: Should go through a rule runner
 						Runner(rule,context=service,iteration=self.iteration).onRunEnded(self.onRuleEnded).run()
+						next_run = min(
+							now() + rule.freq,
+							next_run
+						)
 			self.iteration += 1
 			# Sleeps waiting for the next run
 			sleep_time = max(0, next_run - now())
 			if sleep_time > 0:
-				self.logger.info("Sleeping for %0.2fs" % (sleep_time / 1000.0))
+				if sleep_time > 1000:
+					self.logger.info("Sleeping for %0.2fs" % (sleep_time / 1000.0))
 				time.sleep(sleep_time / 1000.0)
-				self.logger.sep()
 
 	def onRuleEnded( self, runner ):
 		"""Callback bound to 'Runner.onRunEnded', trigerred once a rule was executed.
@@ -570,18 +665,20 @@ class Monitor:
 		# FIXME: Handle exception
 		rule    = runner.runnable
 		service = runner.context
-		if runner.result is True:
+		if isinstance(runner.result, Success):
 			if rule.success:
-				self.logger.info("Success actions:", ", ".join(rule.success))
+				#self.logger.info("Success actions:", ", ".join(rule.success))
 				for action in rule.success:
 					service.getAction(action).run(runner, service, rule, runner)
-		else:
+		elif isinstance(runner.result, Failure):
 			self.logger.err("Failure on ", rule)
 			if rule.fail:
-				self.logger.info("Failure actions:", ", ".join(rule.fail))
+				#self.logger.info("Failure actions:", ", ".join(rule.fail))
 				for action in rule.fail:
 					service.getAction(action).run(runner, service, rule, runner)
 			else:
 				self.logger.info("No failure action to trigger")
+		else:
+			self.logger.err("Rule did not return Success or Failure instance: %s, got %s" % (rule, runner.result))
 
 # EOF - vim: tw=80 ts=4 sw=4 noet
