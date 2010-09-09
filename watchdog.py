@@ -17,7 +17,7 @@ import httplib, socket, threading, signal, subprocess, glob
 
 # FIXME: Ensure re-ordering of logging
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 
 RE_SPACES  = re.compile("\s+")
 RE_INTEGER = re.compile("\d+")
@@ -215,7 +215,7 @@ class Process:
 		return res
 		
 	@classmethod
-	def GetWith( self, expression, compare=(lambda a,b:a == b) ):
+	def GetWith( self, expression, compare=(lambda a,b:a.find(b) >= 0) ):
 		"""Returns a list of all processes that contain the expression
 		in their command line."""
 		res = []
@@ -353,8 +353,9 @@ class Time:
 class Success:
 
 	def __init__(self, value=True, message=None):
-		self.message = message
-		self.value   = value
+		self.message  = message
+		self.value    = value
+		self.duration = None
 	
 	def __str__( self ):
 		return str(self.value)
@@ -362,8 +363,9 @@ class Success:
 class Failure:
 
 	def __init__(self, message="Failure", value=None):
-		self.message = message
-		self.value   = value
+		self.message  = message
+		self.value    = value
+		self.duration = None
 	
 	def __str__( self ):
 		return str(self.message)
@@ -415,6 +417,16 @@ class Log(Action):
 			f.flush()
 			f.close()
 		return True
+
+class LogResult(Log):
+
+	def __init__( self, message, path=None, stdout=True, process=lambda _:_ ):
+		Log.__init__(self, path, stdout)
+		self.message   = message
+		self.processor = process
+
+	def successMessage( self, monitor, service, rule, runner ):
+		return "%s %s %s" % (self.preamble(monitor, service, rule, runner), self.message, self.processor(runner.result))
 
 class Restart(Action):
 
@@ -605,6 +617,7 @@ class Runner:
 		self.startTime = now()
 		try:
 			self.result = self.runnable.run(*self.args)
+			self.result.duration = self.duration
 		except Exception, e:
 			self.result = e
 			# FIXME: Rewrite this properly
