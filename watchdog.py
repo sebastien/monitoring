@@ -6,16 +6,34 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   10-Feb-2010
-# Last mod.         :   09-Sep-2010
+# Last mod.         :   29-Sep-2010
 # -----------------------------------------------------------------------------
 
 import re, sys, os, time, datetime, stat
 import httplib, socket, threading, signal, subprocess, glob
 
+# TODO: Add System health metrics (CPU%, MEM%, DISK%, I/O, INODES)
+
+# FIXME: HTTP should use httplib2, pool HTTP requests (and limit to a maximum),
+# should also force close after a certain time (cappedpool)
+
 # FIXME: Prevent flooding of taskrunner, ie. when tasks take longer than
-# their duration
+# their duration, this is valid for actions or rules taking too long.
+
+# FIXME: One of the scenario is that the frequency of an action is shorter than
+# the execution time, so that you have an accumulation
 
 # FIXME: Ensure re-ordering of logging
+
+#  File "sample-reporter.py", line 35, in <module>
+#    fail    = [SendStat(ADKIT_STATSERVICE, "mediaserver.ms-1.failure")]
+#  File "/home/sebastien/Projects/Local/lib/python/watchdog.py", line 669, in run
+#    Runner(rule,context=service,iteration=self.iteration).onRunEnded(self.onRuleEnded).run()
+#  File "/home/sebastien/Projects/Local/lib/python/watchdog.py", line 620, in run
+#    self._thread.start()
+#  File "/usr/lib/python2.6/threading.py", line 474, in start
+#    _start_new_thread(self.__bootstrap, ())
+#thread.error: can't start new thread
 
 __version__ = "0.9.1"
 
@@ -359,6 +377,9 @@ class Success:
 	
 	def __str__( self ):
 		return str(self.value)
+	
+	def __call__( self ):
+		return self.value
 
 class Failure:
 
@@ -369,6 +390,9 @@ class Failure:
 	
 	def __str__( self ):
 		return str(self.message)
+
+	def __call__( self ):
+		return self.value
 
 SUCCESS = Success()
 FAILURE = Failure()
@@ -451,7 +475,11 @@ class Restart(Action):
 
 class Rule:
 
-	def __init__( self, freq, fail, success=() ):
+	COUNT = 0
+
+	def __init__( self, freq, fail=(), success=() ):
+		self.id      = Rule.COUNT
+		Rule.COUNT   += 1
 		self.lastRun = 0
 		self.freq    = freq
 		self.fail    = fail
@@ -477,10 +505,13 @@ class HTTP(Rule):
 		if POST:
 			url = POST
 			method = "POST"
-		if url.startswith("http://"): url = url[6:]
+		if url.startswith("http://"): url = url[7:]
 		server, uri  = url.split("/",  1)
 		if not uri.startswith("/"): uri = "/" + uri
-		server, port = server.split(":", 1)
+		if server.find(":") >= 0:
+			server, port = server.split(":", 1)
+		else:
+			port = 80
 		self.server  = server
 		self.port    = port
 		self.uri     = uri
@@ -555,7 +586,7 @@ class Service:
 
 	# FIXME: Add a check() method that checks that actions exists for rules
 
-	def __init__( self, name, monitor=(), actions={} ):
+	def __init__( self, name=None, monitor=(), actions={} ):
 		self.name    = name
 		self.rules   = []
 		self.actions = {}
@@ -576,7 +607,12 @@ class Service:
 		"""Runs the action with the given name."""
 		assert self.actions.has_key(name)
 		# NOTE: Document the protocol
-		Runner(self.actions[name]).run(event, self)
+		# FIXME: Use pools ?
+		runner = Runner.Create(self.actions[name])
+		if runner:
+			runner.run(event, self)
+		else:
+			Logger.Err("Cannot execute action because Runner.POOL is full: %s" % (self))
 
 # -----------------------------------------------------------------------------
 #
@@ -584,11 +620,49 @@ class Service:
 #
 # -----------------------------------------------------------------------------
 
+# FIXME: Nos sure if pools are really necessary, they're not used so far
+class Pool:
+	"""Pools are used in Watchdog to limit the number of runners/rules executed
+	at once. Pools have a maximum capacity, so that you can limit the numbers
+	of elements you create."""
+
+	def __init__( self, capacity ):
+		self.capacity = capacity
+		self.elements = []
+
+	def add( self, element ):
+		if self.canAdd():
+			self.elements.append(element)
+			return True
+		else:
+			return False
+
+	def canAdd( self ):
+		return len(self.elements) < self.capacity
+
+	def remove( self, element ):
+		assert element in self.elements
+		self.elements.remove(element)
+	
+	def size( self ):
+		return len(self.elements)
+
 class Runner:
 	"""Wraps a Rule or Action in a separate thread an invoked the 'onEnded'
 	callback once the rule is executed."""
 
-	def __init__( self, runnable, context=None, iteration=None ):
+	POOL = Pool(100)
+
+	@classmethod
+	def Create( self, runnable, context=None, iteration=None):
+		if Runner.POOL.canAdd():
+			runner = Runner(runnable, context, iteration, Runner.POOL)
+			Runner.POOL.add(runner)
+			return runner
+		else:
+			return None
+
+	def __init__( self, runnable, context=None, iteration=None, pool=None ):
 		assert isinstance(runnable, Action) or isinstance(runnable, Rule)
 		self._onRunEnded  = None
 		self.runnable     = runnable
@@ -599,6 +673,7 @@ class Runner:
 		self.startTime    = -1
 		self.endTime      = -1
 		self.duration     = 0
+		self.pool         = pool
 		self._thread      = threading.Thread(target=self._run)
 
 	def onRunEnded( self, callback ):
@@ -617,14 +692,23 @@ class Runner:
 		self.startTime = now()
 		try:
 			self.result = self.runnable.run(*self.args)
-			self.result.duration = self.duration
+			if isinstance(self.result, Success) or isinstance(self.result, Failure):
+				self.result.duration = self.duration
 		except Exception, e:
 			self.result = e
 			# FIXME: Rewrite this properly
-			Logger.Err("Exception occured in 'run' with:", self.runnable, e)
-		self.endTime = now()
+			Logger.Err("Exception occured in 'run' with: %s %s" % (e, self.runnable))
+		self.endTime  = now()
 		self.duration = self.endTime - self.startTime
-		if self._onRunEnded: self._onRunEnded(self)
+		try:
+			if self.pool: self.pool.remove(self)
+		except Exception, e:
+			Logger.Err("Exception occured in 'run/pool' with: %s %s" % (e, self.runnable))
+		try:
+			if self._onRunEnded:
+				self._onRunEnded(self)
+		except Exception, e:
+			Logger.Err("Exception occured in 'run/onRunEnded' with: %s %s" % (e, self.runnable))
 
 # -----------------------------------------------------------------------------
 #
@@ -637,13 +721,27 @@ class Monitor:
 	FREQUENCY = Time.s(5)
 
 	def __init__( self, *services ):
-		self.services  = []
-		self.isRunning = False
-		self.freq      = self.FREQUENCY
-		self.logger    = Logger(prefix="watchdog ")
-		self.iteration = 0
+		self.services   = []
+		self.isRunning  = False
+		self.freq       = self.FREQUENCY
+		self.logger     = Logger(prefix="watchdog ")
+		self.iteration  = 0
+		self.runners    = {}
 		map(self.addService, services)
 	
+	def runnerForRule(self, rule, context, iteration):
+		if self.runners.has_key(rule.id):
+			self.logger.err("Previous iteration's rule is still running: %s, you should increase its frequency." % (rule))
+			return None
+		else:
+			runner = Runner.Create(rule,context=context,iteration=iteration)
+			self.runners[runner.runnable.id] = True
+			if runner:
+				runner.onRunEnded(self.onRuleEnded)
+				return runner
+			else:
+				self.logger.err("Cannot create runner for rule: %s (thread pool reached full capacity)" % (rule))
+
 	def addService( self, service ):
 		self.services.append(service)
 
@@ -651,19 +749,28 @@ class Monitor:
 		Signals.Setup()
 		self.isRunning = True
 		while self.isRunning:
-			next_run = now() + self.freq
+			it_start = now()
+			next_run = it_start + self.freq
 			for service in self.services:
 				for rule in service.rules:
 					to_wait = rule.shouldRunIn()
 					if to_wait > 0:
 						next_run = min(now() + to_wait, next_run)
 					else:
-						# FIXME: Should go through a rule runner
-						Runner(rule,context=service,iteration=self.iteration).onRunEnded(self.onRuleEnded).run()
+						# Create a runner
+						runner = self.runnerForRule(rule,service,self.iteration)
+						if runner:
+							runner.run()
+						else:
+							# FIXME: Rule should fail because it can't be
+							# executed
+							pass
 						next_run = min(
 							now() + rule.freq,
 							next_run
 						)
+			duration = now() - it_start
+			self.logger.info("#%d (runners=%d,threads=%d,duration=%0.2fs)" % (self.iteration, Runner.POOL.size(), threading.activeCount(), duration))
 			self.iteration += 1
 			# Sleeps waiting for the next run
 			sleep_time = max(0, next_run - now())
@@ -682,16 +789,28 @@ class Monitor:
 			if rule.success:
 				#self.logger.info("Success actions:", ", ".join(rule.success))
 				for action in rule.success:
-					service.getAction(action).run(runner, service, rule, runner)
+					action_object = service.getAction(action)
+					action_runner = Runner.Create(action_object)
+					if action_runner:
+						action_runner.run(runner, service, rule, runner)
+					else:
+						self.logger.err("Cannot create action runner for: %s" % (action_object))
 		elif isinstance(runner.result, Failure):
 			self.logger.err("Failure on ", rule, ":", runner.result)
 			if rule.fail:
 				#self.logger.info("Failure actions:", ", ".join(rule.fail))
 				for action in rule.fail:
-					service.getAction(action).run(runner, service, rule, runner)
+					action_object = service.getAction(action)
+					action_runner = Runner.Create(action_object)
+					if action_runner:
+						action_runner.run(runner, service, rule, runner)
+					else:
+						self.logger.err("Cannot create action runner for: %s" % (action_object))
 			else:
 				self.logger.info("No failure action to trigger")
 		else:
 			self.logger.err("Rule did not return Success or Failure instance: %s, got %s" % (rule, runner.result))
+		# We unregister the runnner
+		del self.runners[rule.id]
 
 # EOF - vim: tw=80 ts=4 sw=4 noet
