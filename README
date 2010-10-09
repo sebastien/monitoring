@@ -18,3 +18,24 @@ Watchdog: sleeping for 9.9s
 --- triggering: restart, log, notify
 
 
+Rules
+=====
+
+- SystemHealth
+
+- HTTP
+
+Testing:
+- Succeed
+- Fail
+
+
+Actions
+=======
+
+Incident
+Log
+LogResult
+
+SendStat
+

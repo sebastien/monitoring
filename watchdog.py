@@ -6,10 +6,10 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   10-Feb-2010
-# Last mod.         :   29-Sep-2010
+# Last mod.         :   09-Oct-2010
 # -----------------------------------------------------------------------------
 
-import re, sys, os, time, datetime, stat
+import re, sys, os, time, datetime, stat, smtplib, string
 import httplib, socket, threading, signal, subprocess, glob
 
 # TODO: Add System health metrics (CPU%, MEM%, DISK%, I/O, INODES)
@@ -338,7 +338,7 @@ class System:
 		return (meminfo["MemTotal"] - meminfo["MemFree"]) / float (meminfo["MemTotal"])
 
 	@classmethod
-	def DriveUsage( self ):
+	def DiskUsage( self ):
 		"""Returns a dictionary 'device' -> 'percentage' representing the
 		usage of each device. A percentage of 1.0 means completely used,
 		0.0 means unused."""
@@ -540,7 +540,7 @@ class Log(Action):
 
 class LogResult(Log):
 
-	def __init__( self, message, path=None, stdout=True, process=lambda _:_ ):
+	def __init__( self, message="adasd", path=None, stdout=True, process=lambda _:_ ):
 		Log.__init__(self, path, stdout)
 		self.message   = message
 		self.processor = process
@@ -549,6 +549,10 @@ class LogResult(Log):
 		return "%s %s %s" % (self.preamble(monitor, service, rule, runner), self.message, self.processor(runner.result))
 
 class Restart(Action):
+	"""Restarts the process with the given command, killing the process if it
+	already exists, starting it if it doesn't. Use this one with care as the
+	process will become a child of the watchdog -- it's better to use
+	start/stop scripts if the process is long-running."""
 
 	def __init__( self, command, cwd=None ):
 		self.command = command
@@ -563,6 +567,84 @@ class Restart(Action):
 			Process.Kill(pid=pid)
 			Process.Start(cmd, cwd=cwd)
 		return True
+
+class Email(Action):
+	"""Sends an email"""
+	
+	MESSAGE = """\
+	|From: ${from}
+	|To:   ${to}
+	|Subject: ${subject}
+	|
+	|${message}
+	|--
+	|Timestamp: ${timestamp}
+	|Iteration: ${iteration}
+	|Result:    ${result}
+	|--
+	""".replace("\t|","")
+
+	def __init__( self, recipient, subject, message, host, user=None, password=None, origin=None ):
+		self.recipient = recipient
+		self.subject   = subject
+		self.message   = message
+		self.host      = host
+		self.user      = user
+		self.password  = password
+		self.origin    = origin
+	
+	def run( self, monitor, service, rule, runner ):
+		self.send(monitor, service, rule, runner)
+
+	def send( self, monitor=None, service=None, rule=None, runner=None ):
+		data    = {}
+		server  = smtplib.SMTP(self.host)
+		origin  = self.origin or "<Watchdog for %s> watchdog@%s" % (service and service.name, popen("hostname")[:-1])
+		message = string.Template(self.MESSAGE).safe_substitute({
+			"from":origin,
+			"to":self.recipient,
+			"subject":self.subject,
+			"message":self.message,
+			"result":runner and runner.result,
+			"timestamp":timestamp(),
+			"iteration":monitor and monitor.iteration or 0
+		})
+		server.ehlo()
+		server.starttls()
+		server.ehlo()
+		if self.password:
+			server.login(self.user, self.password)
+		server.sendmail(origin, [self.user], message)
+		try:
+			server.quit()
+		except:
+			pass
+		return message
+
+class Incident(Action):
+	"""Triggers an action if there are N errors (5 by default) within a time
+	lapse T (in ms, 30,000 by default)."""
+
+	def __init__( self, actions, errors=5, during=30 * 1000):
+		if not (type(actions) in (tuple,list)): actions = tuple([actions])
+		self.actions        = actions
+		self.errors         = errors
+		self.during         = during
+		self.errorValues    = []
+		self.errorStartTime = 0
+	
+	def run( self, monitor, service, rule, runner ):
+		"""When the number of errors is reached within the period, the given
+		actions are triggered."""
+		if not self.errorValues: self.errorStartTime = now()
+		elapsed_time = now() - self.errorStartTime
+		self.errorValues.append(runner.result)
+		if len(self.errorValues) >= self.errors and elapsed_time >= self.during:
+			error_values     = self.errorValues
+			self.errorValues = []
+			for action in self.actions:
+				# FIXME: Should clone the runner and return the result
+				action.run(monitor, service, rule, runner)
 
 # -----------------------------------------------------------------------------
 #
@@ -579,6 +661,9 @@ class Rule:
 
 	def __init__( self, freq, fail=(), success=() ):
 		self.id      = Rule.COUNT
+		# Ensures that the given data is given as a list
+		if not (type(fail)    in (tuple, list)): fail    = tuple([fail])
+		if not (type(success) in (tuple, list)): success = tuple([success])
 		Rule.COUNT   += 1
 		self.lastRun = 0
 		self.freq    = freq
@@ -638,6 +723,47 @@ class HTTP(Rule):
 	def __repr__( self ):
 		return "HTTP(%s=\"%s:%s/%s\",timeout=%s)" % (self.method, self.server, self.port, self.uri, self.timeout)
 
+class SystemHealth(Rule):
+	"""Defines thresholds for key system health stats."""
+
+	def __init__( self, freq, cpu=0.90, disk=0.90, mem=0.90, fail=(), success=() ):
+		"""Monitors the system health with the following thresholds:
+
+		- 'cpu'  (0.90 by default)
+		- 'disk' (0.90 by default)
+		- 'mem'  (0.90 by default)
+
+		"""
+		Rule.__init__(self, freq, fail, success)
+		self.cpu  = cpu
+		self.disk = disk
+		self.mem  = mem
+	
+	def run( self ):
+		"""Checks wether the collected stats are within the threshold or not. In
+		case of failure, the failure data will be like a list of these:
+
+		- ['cpu' , <actual value:float>, <threshold value:float>]
+		- ['mem' , <actual value:float>, <threshold value:float>]
+		- ['disk', <actual value:float>, <threshold value:float>, <mount point:string>]
+
+		"""
+		errors = []
+		cpu    = System.CPUUsage()
+		mem    = System.MemoryUsage()
+		disk   = System.DiskUsage()
+		if cpu > self.cpu:
+			errors.append(("cpu", cpu, self.cpu))
+		if mem > self.mem:
+			errors.append(("mem", mem, self.mem))
+		for mount, usage in disk.items():
+			if usage > self.disk:
+				errors.append(("disk", usage, self.disk))
+		if errors:
+			return Failure(errors)
+		else:
+			return Success()
+
 class Mem(Rule):
 
 	def __init__( self, max, freq=Time.m(1), fail=(), success=() ):
@@ -676,6 +802,22 @@ class Delta(Rule):
 		else:
 			return res
 
+class Succeed(Rule):
+
+	def __init__( self, freq, actions=()):
+		Rule.__init__(self, freq, fail=(), success=actions)
+	
+	def run( self ):
+		return Success()
+
+class Fail(Rule):
+
+	def __init__( self, freq, actions=()):
+		Rule.__init__(self, freq, fail=actions, success=())
+	
+	def run( self ):
+		return Failure()
+
 # -----------------------------------------------------------------------------
 #
 # SERVICE
@@ -692,6 +834,7 @@ class Service:
 		self.name    = name
 		self.rules   = []
 		self.actions = {}
+		if not (type(monitor) in (tuple,list)): monitor = tuple([monitor])
 		map(self.addRule, monitor)
 		self.actions.update(actions)
 	
