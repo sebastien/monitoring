@@ -41,24 +41,31 @@ RE_SPACES  = re.compile("\s+")
 RE_INTEGER = re.compile("\d+")
 
 def cat( path ):
+	"""Outputs the content of the file at the given path"""
 	f = file(path, 'r')
 	d = f.read()
 	f.close()
 	return d
 
 def count( path ):
+	"""Count the number of files and directories at the given path"""
 	return len(os.listdir(path))
 
 def now():
+	"""Returns the current time in milliseconds"""
 	return time.time() * 1000
 
 def popen( command, cwd=None ):
+	"""Returns the stdout from the given command, using the subproces
+	command."""
 	cmd = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, cwd=cwd)
 	res = cmd.stdout.read()
 	cmd.wait()
 	return res
 
 def timestamp():
+	"""Returns the current timestamp as an ISO-8601 time
+	("1977-04-22T01:00:00-05:00")"""
 	n = datetime.datetime.now()
 	return "%04d-%02d-%02dT%02d:%02d:%02d" % (
 		n.year, n.month, n.day, n.hour, n.minute, n.second
@@ -71,6 +78,8 @@ def timestamp():
 # -----------------------------------------------------------------------------
 
 class Signals:
+	"""Takes care of registering/unregistering signals so that shutdown
+	(on Ctrl-C) works properly."""
 
 	SINGLETON = None
 
@@ -82,7 +91,8 @@ class Signals:
 	
 	@classmethod
 	def OnShutdown( self, callback ):
-		"""Registers a new ."""
+		"""Registers a new callback to be triggered on
+		SIGINT/SIGHUP/SIGABRT/SIQUITE/SIGTERM."""
 		if self.SINGLETON is None: self.SINGLETON = Signals()
 		assert not self.SINGLETON.signalsRegistered, "OnShutdown must be called before Setup."
 		self.SINGLETON.onShutdown.append(callback)
@@ -97,7 +107,8 @@ class Signals:
 			self.hasSignalModule = False
 
 	def setup( self ):
-		"""Sets up the signals."""
+		"""Sets up the signals, registering the shutdown function. You only
+		need to call this function once."""
 		if self.hasSignalModule and not self.signalsRegistered:
 			# Jython does not support all signals, so we only use
 			# the available ones
@@ -111,6 +122,7 @@ class Signals:
 					Logger.Err("[!] watchdog.Signals._registerSignals:%s %s\n" % (sig, e))
 
 	def _shutdown(self, *args):
+		"""Safely executes the callbacks registered in self.onShutdown."""
 		for callback in self.onShutdown:
 			try:
 				callback()
@@ -191,6 +203,8 @@ class Logger:
 # -----------------------------------------------------------------------------
 
 class Process:
+	"""A collection of utilities to manipulate and interact with running
+	processes."""
 	# See <http://linux.die.net/man/5/proc>
 
 	RE_PS_OUTPUT = re.compile("^%s$" % ("\s+".join([
@@ -294,8 +308,74 @@ class Process:
 				running  = running
 			)
 
+# -----------------------------------------------------------------------------
+#
+# PROCESS INFORMATION
+#
+# -----------------------------------------------------------------------------
+
 class System:
+	"""A collection of utilities to interact with system information"""
 	
+	LAST_CPU_STAT = None
+
+	@classmethod
+	def MemoryInfo( self ):
+		"""Returns the content of /proc/meminfo as a dictionary 'key' -> 'value'
+		where value is in kB"""
+		res = {}
+		for line in cat("/proc/meminfo").split("\n")[:-1]:
+			line = RE_SPACES.sub(" ", line).strip().split(" ")
+			print repr(line)
+			name, value = line[:2]
+			res[name.replace("(","_").replace(")","_").replace(":","")] = int(value)
+		return res
+	
+	@classmethod
+	def MemoryUsage( self ):
+		"""Returns the memory usage (between 0.0 and 1.0) on this system."""
+		meminfo = self.MemoryInfo()
+		return (meminfo["MemTotal"] - meminfo["MemFree"]) / float (meminfo["MemTotal"])
+
+	@classmethod
+	def DriveUsage( self ):
+		"""Returns a dictionary 'device' -> 'percentage' representing the
+		usage of each device. A percentage of 1.0 means completely used,
+		0.0 means unused."""
+		# >> df -iP
+		# Sys. de fich.            Inodes   IUtil.  ILib. IUti% Monte sur
+		# /dev/sda1             915712  241790  673922   27% /
+		# none                  210977     788  210189    1% /dev
+		# none                  215028      19  215009    1% /dev/shm
+		# none                  215028      71  214957    1% /var/run
+		# none                  215028       2  215026    1% /var/lock
+		# /dev/sda5            8364032  500833 7863199    6% /home
+		# /home/sebastien/.Private 8364032  500833 7863199    6% /home/sebastien
+		res = {}
+		for line in popen("df -iP").split("\n")[1:-1]:
+			line = RE_SPACES.sub(" ", line).strip().split(" ")
+			system, inodes, used_inodes, free_inodes, usage, mount = line
+			res[mount] = float(usage[:-1]) / 100.0
+		return res
+
+	@classmethod
+	def CPUStats( self ):
+		"""Returns  CPU stats, that can be used to get the CPUUsage"""
+		# From <http://ubuntuforums.org/showthread.php?t=148781>
+		time_list = cat("/proc/stat").split("\n")[0].split(" ")[2:6]
+		res       = map(int, time_list)
+		self.LAST_CPU_STAT = res
+		return res
+	
+	@classmethod
+	def CPUUsage( self, cpuStat=None ):
+		if not cpuStat: cpuStat = self.LAST_CPU_STAT
+		stat_now = self.CPUStats()
+		res      = []
+		for i in range(len(cpuStat)): res.append( stat_now[i] - cpuStat[i] )
+		usage = 100 - (res[len(res) - 1] * 100.00 / sum(res))
+		return usage
+
 	@classmethod
 	def GetInterfaceStats( self ):
 		# $/proc/net$ sudo cat dev
@@ -333,7 +413,14 @@ class System:
 			}
 		return res
 
+# -----------------------------------------------------------------------------
+#
+# UNITS
+#
+# -----------------------------------------------------------------------------
+
 class Size:
+	"""Converts the given value in the given units to bytes"""
 
 	@classmethod
 	def MB(self, v):
@@ -349,6 +436,7 @@ class Size:
 
 
 class Time:
+	"""Converts the given time in the given units to milliseconds"""
 
 	@classmethod
 	def m(self, t ):
@@ -368,9 +456,15 @@ class Time:
 #
 # -----------------------------------------------------------------------------
 
-class Success:
+class Result:
+	def __init__( self ):
+		pass
+
+class Success(Result):
+	"""Represents the success of a Rule."""
 
 	def __init__(self, value=True, message=None):
+		Result.__init__(self)
 		self.message  = message
 		self.value    = value
 		self.duration = None
@@ -381,9 +475,11 @@ class Success:
 	def __call__( self ):
 		return self.value
 
-class Failure:
+class Failure(Result):
+	"""Represents the failure of a Rule."""
 
 	def __init__(self, message="Failure", value=None):
+		Result.__init__(self)
 		self.message  = message
 		self.value    = value
 		self.duration = None
@@ -394,8 +490,6 @@ class Failure:
 	def __call__( self ):
 		return self.value
 
-SUCCESS = Success()
-FAILURE = Failure()
 
 
 # -----------------------------------------------------------------------------
@@ -405,6 +499,7 @@ FAILURE = Failure()
 # -----------------------------------------------------------------------------
 
 class Action:
+	"""Represents actions that can be triggered on rule sucess or failure."""
 
 	def __init__( self ):
 		pass
@@ -413,6 +508,7 @@ class Action:
 		pass
 
 class Log(Action):
+	"""Logs results to the given path."""
 
 	def __init__( self, path=None, stdout=True ):
 		Action.__init__(self)
@@ -465,6 +561,7 @@ class Restart(Action):
 		else:
 			pid, ppid, cmd = process_info
 			Process.Kill(pid=pid)
+			Process.Start(cmd, cwd=cwd)
 		return True
 
 # -----------------------------------------------------------------------------
@@ -474,6 +571,9 @@ class Restart(Action):
 # -----------------------------------------------------------------------------
 
 class Rule:
+	"""Rules return either a Sucess or Failure when run, and take actions
+	as 'fail' or 'success' arguments, which will be triggered by the
+	watchdog service."""
 
 	COUNT = 0
 
@@ -583,6 +683,8 @@ class Delta(Rule):
 # -----------------------------------------------------------------------------
 
 class Service:
+	"""A service is a collection of rules and actions. Rules are executed
+	and actions are triggered according to the rules result."""
 
 	# FIXME: Add a check() method that checks that actions exists for rules
 
@@ -717,6 +819,8 @@ class Runner:
 # -----------------------------------------------------------------------------
 
 class Monitor:
+	"""The monitor is at the core of the watchdog. Rules declared in registered
+	services are run, and actions are executed according to the result."""
 
 	FREQUENCY = Time.s(5)
 
@@ -812,5 +916,12 @@ class Monitor:
 			self.logger.err("Rule did not return Success or Failure instance: %s, got %s" % (rule, runner.result))
 		# We unregister the runnner
 		del self.runners[rule.id]
+
+# Globals
+
+SUCCESS = Success()
+FAILURE = Failure()
+# Updates the CPU stats so that CPUUsage works
+System.CPUStats()
 
 # EOF - vim: tw=80 ts=4 sw=4 noet
