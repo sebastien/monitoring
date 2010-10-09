@@ -594,7 +594,11 @@ class Email(Action):
 		self.origin    = origin
 	
 	def run( self, monitor, service, rule, runner ):
-		self.send(monitor, service, rule, runner)
+		if self.send(monitor, service, rule, runner):
+			Logger.Info("Email sent to %s (#%s)" % (self.recipient, monitor.iteration))
+		else:
+			Logger.Err("Could not send email to %s (#%s)" % (self.recipient, monitor.iteration))
+
 
 	def send( self, monitor=None, service=None, rule=None, runner=None ):
 		data    = {}
@@ -621,6 +625,49 @@ class Email(Action):
 			pass
 		return message
 
+class XMPP(Action):
+	"""Sends an XMPP message"""
+	
+	def __init__( self, recipient, message, user=None, password=None ):
+		# FIXME: Add import error, suggest to easy_install pyxmpp
+		import xmpp
+		self.xmpp      = xmpp
+		self.recipient = recipient
+		self.message   = message
+		self.user      = user
+		self.password  = password
+	
+	def run( self, monitor, service, rule, runner ):
+		if self.send(monitor, service, rule, runner):
+			Logger.Info("XMPP message sent to %s (#%s)" % (self.recipient, monitor.iteration))
+		else:
+			Logger.Err("Could not send XMPP message to %s (#%s)" % (self.recipient, monitor.iteration))
+
+	def send( self, monitor=None, service=None, rule=None, runner=None ):
+		jid       = self.xmpp.protocol.JID(self.user)
+		client    = self.xmpp.Client(jid.getDomain(), debug=([]))
+		conn      = client.connect()
+		if not conn:
+			Logger.Err("Cannot connect to XMPP account (name=%s)" % (self.user))
+			return False
+		auth      = client.auth(jid.getNode(), self.password, resource=(jid.getResource()))
+		if not auth:
+			Logger.Err("Cannot authenticate to XMPP account (name=%s)" % (self.user))
+			return False
+		message = string.Template(self.message).safe_substitute({
+			"to":self.recipient,
+			"service":service and service.name,
+			"result":runner and runner.result,
+			"timestamp":timestamp(),
+			"iteration":monitor and monitor.iteration or 0
+		})
+		try:
+			client.send(self.xmpp.protocol.Message(self.recipient, message))
+			client.disconnect()
+		except Exception, e:
+			Logger.Err("Cannot send XMPP message: " + str(e))
+		return True
+	
 class Incident(Action):
 	"""Triggers an action if there are N errors (5 by default) within a time
 	lapse T (in ms, 30,000 by default)."""

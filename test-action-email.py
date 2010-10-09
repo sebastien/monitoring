@@ -1,24 +1,16 @@
 #!/usr/bin/env python
 from watchdog import *
-print Email(
+action = Email(
 	"sebastien@ffctn.com",
 	"[Watchdog] Test", "Sample message", 
 	"smtp.gmail.com", "mail.agent@ffctn.com", "ffctnmailagent"
-).send()
+)
 Monitor(
 	Service(
 		name = "test-action-email",
 		monitor = (
-			Fail(Time.s(10), actions=Email(
-				"sebastien@ffctn.com",
-				"[Watchdog] Failure", "Rule failed", 
-				"smtp.gmail.com", "mail.agent@ffctn.com", "ffctnmailagent"
-			)),
-			Succeed(Time.s(10), actions=Email(
-				"sebastien@ffctn.com",
-				"[Watchdog] Failure", "Rule failed", 
-				"smtp.gmail.com", "mail.agent@ffctn.com", "ffctnmailagent"
-			))
+			Fail   (Time.s(10), actions=action),
+			Succeed(Time.s(10), actions=action)
 		)
 	)
 ).run()
