@@ -6,7 +6,7 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   10-Feb-2010
-# Last mod.         :   09-Oct-2010
+# Last mod.         :   11-Oct-2010
 # -----------------------------------------------------------------------------
 
 import re, sys, os, time, datetime, stat, smtplib, string
@@ -326,16 +326,16 @@ class System:
 		res = {}
 		for line in cat("/proc/meminfo").split("\n")[:-1]:
 			line = RE_SPACES.sub(" ", line).strip().split(" ")
-			print repr(line)
 			name, value = line[:2]
 			res[name.replace("(","_").replace(")","_").replace(":","")] = int(value)
 		return res
 	
 	@classmethod
 	def MemoryUsage( self ):
-		"""Returns the memory usage (between 0.0 and 1.0) on this system."""
+		"""Returns the memory usage (between 0.0 and 1.0) on this system, which
+		is total memory - free memory - cached memory."""
 		meminfo = self.MemoryInfo()
-		return (meminfo["MemTotal"] - meminfo["MemFree"]) / float (meminfo["MemTotal"])
+		return (meminfo["MemTotal"] - meminfo["MemFree"] - meminfo["Cached"]) / float (meminfo["MemTotal"])
 
 	@classmethod
 	def DiskUsage( self ):
@@ -373,7 +373,7 @@ class System:
 		stat_now = self.CPUStats()
 		res      = []
 		for i in range(len(cpuStat)): res.append( stat_now[i] - cpuStat[i] )
-		usage = 100 - (res[len(res) - 1] * 100.00 / sum(res))
+		usage = (100 - (res[len(res) - 1] * 100.00 / sum(res))) / 100.0
 		return usage
 
 	@classmethod
@@ -510,10 +510,11 @@ class Action:
 class Log(Action):
 	"""Logs results to the given path."""
 
-	def __init__( self, path=None, stdout=True ):
+	def __init__( self, path=None, stdout=True, overwrite=False ):
 		Action.__init__(self)
 		self.path   = path
 		self.stdout = stdout
+		self.overwrite = overwrite
 	
 	def preamble( self, monitor, service, rule, runner ):
 		return "%s %s[%d]" % (timestamp(), service and service.name, runner.iteration)
@@ -532,7 +533,7 @@ class Log(Action):
 		if self.stdout:
 			sys.stdout.write(msg)
 		if self.path:
-			f = file( self.path, 'a')
+			f = file( self.path, self.overwrite and 'w' or 'a')
 			f.write(msg)
 			f.flush()
 			f.close()
@@ -540,13 +541,21 @@ class Log(Action):
 
 class LogResult(Log):
 
-	def __init__( self, message="adasd", path=None, stdout=True, process=lambda _:_ ):
-		Log.__init__(self, path, stdout)
+	def __init__( self, message, path=None, stdout=True, process=lambda _:_, overwrite=False ):
+		Log.__init__(self, path, stdout, overwrite)
 		self.message   = message
 		self.processor = process
 
 	def successMessage( self, monitor, service, rule, runner ):
 		return "%s %s %s" % (self.preamble(monitor, service, rule, runner), self.message, self.processor(runner.result))
+
+class LogWatchdogStatus(Log):
+
+	def __init__( self, path=None, stdout=True, overwrite=False ):
+		Log.__init__(self, path, stdout)
+
+	def successMessage( self, monitor, service, rule, runner ):
+		return "%s %s" % (self.preamble(monitor, service, rule, runner), monitor.getStatusMessage())
 
 class Restart(Action):
 	"""Restarts the process with the given command, killing the process if it
@@ -718,11 +727,17 @@ class Rule:
 		self.success = success
 	
 	def shouldRunIn( self ):
-		since_last_run = now() - self.lastRun
-		return self.freq - since_last_run 
+		if self.lastRun == 0:
+			return 0
+		else:
+			since_last_run = now() - self.lastRun
+			return self.freq - since_last_run 
+
+	def touch( self ):
+		self.lastRun = now()
 
 	def run( self ):
-		self.lastRun = now()
+		self.touch()
 		return Success()
 
 class HTTP(Rule):
@@ -768,7 +783,7 @@ class HTTP(Rule):
 			return Success(res)
 	
 	def __repr__( self ):
-		return "HTTP(%s=\"%s:%s/%s\",timeout=%s)" % (self.method, self.server, self.port, self.uri, self.timeout)
+		return "HTTP(%s=\"%s:%s%s\",timeout=%s)" % (self.method, self.server, self.port, self.uri, self.timeout)
 
 class SystemHealth(Rule):
 	"""Defines thresholds for key system health stats."""
@@ -831,7 +846,7 @@ class ProcessInfo(Rule):
 		else:
 			return Failure("Cannot find process with command like: %s" % (self.command))
 
-class Bandwith(Rule):
+class Bandwidth(Rule):
 	"""Measure the bandwiths for the system"""
 
 	def __init__( self, interface, freq, fail=(), success=() ):
@@ -890,6 +905,11 @@ class Succeed(Rule):
 	
 	def run( self ):
 		return Success()
+
+class Always(Succeed):
+
+	def __init__( self, freq, actions=()):
+		Succeed.__init__(self, freq, actions)
 
 class Fail(Rule):
 
@@ -1054,6 +1074,7 @@ class Monitor:
 		self.freq       = self.FREQUENCY
 		self.logger     = Logger(prefix="watchdog ")
 		self.iteration  = 0
+		self.iterationLastDuration = 0
 		self.runners    = {}
 		map(self.addService, services)
 	
@@ -1088,6 +1109,7 @@ class Monitor:
 						# Create a runner
 						runner = self.runnerForRule(rule,service,self.iteration)
 						if runner:
+							rule.touch()
 							runner.run()
 						else:
 							# FIXME: Rule should fail because it can't be
@@ -1098,7 +1120,8 @@ class Monitor:
 							next_run
 						)
 			duration = now() - it_start
-			self.logger.info("#%d (runners=%d,threads=%d,duration=%0.2fs)" % (self.iteration, Runner.POOL.size(), threading.activeCount(), duration))
+			self.iterationLastDuration = duration
+			self.logger.info(self.getStatusMessage())
 			self.iteration += 1
 			# Sleeps waiting for the next run
 			sleep_time = max(0, next_run - now())
@@ -1106,6 +1129,9 @@ class Monitor:
 				if sleep_time > 1000:
 					self.logger.info("Sleeping for %0.2fs" % (sleep_time / 1000.0))
 				time.sleep(sleep_time / 1000.0)
+
+	def getStatusMessage( self ):
+		return "#%d (runners=%d,threads=%d,duration=%0.2fs)" % (self.iteration, Runner.POOL.size(), threading.activeCount(), self.iterationLastDuration)
 
 	def onRuleEnded( self, runner ):
 		"""Callback bound to 'Runner.onRunEnded', trigerred once a rule was executed.
@@ -1135,7 +1161,8 @@ class Monitor:
 					else:
 						self.logger.err("Cannot create action runner for: %s" % (action_object))
 			else:
-				self.logger.info("No failure action to trigger")
+				#self.logger.info("No failure action to trigger")
+				pass
 		else:
 			self.logger.err("Rule did not return Success or Failure instance: %s, got %s" % (rule, runner.result))
 		# We unregister the runnner
