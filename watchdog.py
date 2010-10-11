@@ -811,6 +811,40 @@ class SystemHealth(Rule):
 		else:
 			return Success()
 
+class ProcessInfo(Rule):
+	"""Returns statistics about the process with the given command, the rule
+	returns the same value as 'Process.Info'."""
+
+	def __init__( self, command, freq, fail=(), success=() ):
+		Rule.__init__(self, freq, fail, success)
+		self.command = command
+
+	def run( self ):
+		pid =  Process.GetWith(self.command, lambda a,b:a.find(b) != -1)
+		if pid:
+			pid  = pid[0]
+			info = Process.Info(pid)
+			if info["exists"]:
+				return Success(info)
+			else:
+				return Failure("Process %s does not exists anymore" % (pid))
+		else:
+			return Failure("Cannot find process with command like: %s" % (self.command))
+
+class Bandwith(Rule):
+	"""Measure the bandwiths for the system"""
+
+	def __init__( self, interface, freq, fail=(), success=() ):
+		Rule.__init__(self, freq, fail, success)
+		self.interface = interface
+
+	def run( self ):
+		res =  System.GetInterfaceStats()
+		if res.get(self.interface):
+			return Success(res[self.interface])
+		else:
+			return Failure("Cannot find data for interface: %s" % (self.interface))
+
 class Mem(Rule):
 
 	def __init__( self, max, freq=Time.m(1), fail=(), success=() ):
