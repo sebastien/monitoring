@@ -9,7 +9,7 @@
 # Last mod.         :   27-Oct-2010
 # -----------------------------------------------------------------------------
 
-import re, sys, os, time, datetime, stat, smtplib, string, json
+import re, sys, os, time, datetime, stat, smtplib, string, json, fnmatch
 import httplib, socket, threading, signal, subprocess, glob
 
 # TODO: Add System health metrics (CPU%, MEM%, DISK%, I/O, INODES)
@@ -247,10 +247,11 @@ class Process:
 		return res
 		
 	@classmethod
-	def GetWith( self, expression, compare=(lambda a,b:a.find(b) >= 0) ):
+	def GetWith( self, expression, compare=(lambda a,b:fnmatch.fnmatch(a,b))):
 		"""Returns a list of all processes that contain the expression
 		in their command line."""
 		res = []
+		expression = "*" + expression + "*"
 		for pid, cmdline in self.List().items():
 			if compare(cmdline, expression):
 				res.append(pid)
@@ -300,7 +301,7 @@ class Process:
 				exists   = True,
 				fd       = count("/proc/%d/fd"      % (pid)),
 				tasks    = count("/proc/%d/task"    % (pid)),
-				threads  = status["threads"],
+				threads  = int(status["threads"]),
 				cmdline  = cat  ("/proc/%d/cmdline" % (pid)),
 				fdsize   = status["fdsize"],
 				vmsize   = status["vmsize"],
@@ -731,7 +732,7 @@ class ZMQPublish(Action):
 			self.ZMQ_SOCKETS[url].bind(url)
 		return self.ZMQ_SOCKETS[url]
 
-	def __init__( self, variableName, host="0.0.0.0", port=9009, extract=lambda _:_.result):
+	def __init__( self, variableName, host="0.0.0.0", port=9009, extract=lambda r,_:r):
 		Action.__init__(self)
 		self.host      = host
 		self.port      = port
@@ -742,7 +743,7 @@ class ZMQPublish(Action):
 
 	def send( self, runner ):
 		# FIXME: I think this is a blocking operation
-		message = "%s:application/json:%s" % (self.name, json.dumps(self.extractor(runner)))
+		message = "%s:application/json:%s" % (self.name, json.dumps(self.extractor(runner.result.value, runner)))
 		# NOTE: ZMQ PUB is asynchronous, ZMQ DOWNSTREAM is not !
 		self.socket.send(message)
 		return message
@@ -883,7 +884,7 @@ class ProcessInfo(Rule):
 		self.command = command
 
 	def run( self ):
-		pid =  Process.GetWith(self.command, lambda a,b:a.find(b) != -1)
+		pid =  Process.GetWith(self.command)
 		if pid:
 			pid  = pid[0]
 			info = Process.Info(pid)
@@ -893,6 +894,18 @@ class ProcessInfo(Rule):
 				return Failure("Process %s does not exists anymore" % (pid))
 		else:
 			return Failure("Cannot find process with command like: %s" % (self.command))
+
+class SystemInfo(Rule):
+
+	def __init__( self, freq, fail=(), success=() ):
+		Rule.__init__(self, freq, fail, success)
+
+	def run( self ):
+		return Success(dict(
+			memoryUsage = System.MemoryUsage(),
+			diskUsage   = System.DiskUsage(),
+			cpuUsage    = System.CPUUsage(),
+		))
 
 class Bandwidth(Rule):
 	"""Measure the bandwiths for the system"""
@@ -926,7 +939,7 @@ class Delta(Rule):
 	"""Executes a rule and extracts a numerical value out of it, successfully returning
 	when at least two values have been extracted from the given rule."""
 
-	def __init__( self, rule, extract=lambda _:_, fail=(), success=() ):
+	def __init__( self, rule, extract=lambda res:res, fail=(), success=() ):
 		Rule.__init__(self, rule.freq, fail, success)
 		self.extractor = extract
 		self.rule      = rule
