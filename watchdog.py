@@ -6,10 +6,10 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   10-Feb-2010
-# Last mod.         :   11-Oct-2010
+# Last mod.         :   27-Oct-2010
 # -----------------------------------------------------------------------------
 
-import re, sys, os, time, datetime, stat, smtplib, string
+import re, sys, os, time, datetime, stat, smtplib, string, json
 import httplib, socket, threading, signal, subprocess, glob
 
 # TODO: Add System health metrics (CPU%, MEM%, DISK%, I/O, INODES)
@@ -35,7 +35,7 @@ import httplib, socket, threading, signal, subprocess, glob
 #    _start_new_thread(self.__bootstrap, ())
 #thread.error: can't start new thread
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 RE_SPACES  = re.compile("\s+")
 RE_INTEGER = re.compile("\d+")
@@ -530,14 +530,20 @@ class Log(Action):
 			msg = self.failureMessage(monitor, service, rule, runner) + "\n"
 		else:
 			msg = self.successMessage(monitor, service, rule, runner) + "\n"
+		self.log(msg)
+	
+	def log( self, message ):
 		if self.stdout:
-			sys.stdout.write(msg)
+			sys.stdout.write(message)
 		if self.path:
-			f = file( self.path, self.overwrite and 'w' or 'a')
-			f.write(msg)
+			f = file( self.path, (self.overwrite and 'w') or 'a')
+			f.write(message)
 			f.flush()
 			f.close()
 		return True
+	
+	def __call__( self, message ):
+		self.log(message)
 
 class LogResult(Log):
 
@@ -552,7 +558,7 @@ class LogResult(Log):
 class LogWatchdogStatus(Log):
 
 	def __init__( self, path=None, stdout=True, overwrite=False ):
-		Log.__init__(self, path, stdout)
+		Log.__init__(self, path, stdout, overwrite)
 
 	def successMessage( self, monitor, service, rule, runner ):
 		return "%s %s" % (self.preamble(monitor, service, rule, runner), monitor.getStatusMessage())
@@ -701,6 +707,48 @@ class Incident(Action):
 			for action in self.actions:
 				# FIXME: Should clone the runner and return the result
 				action.run(monitor, service, rule, runner)
+
+class ZMQPublish(Action):
+	"""Publishes a value through ZeroMQ, making it available for other ZeroMQ
+	clients to subscribe"""
+
+	ZMQ_CONTEXT = None
+	ZMQ_SOCKETS = {}
+
+	
+	@classmethod
+	def getZMQContext( self ):
+		import zmq
+		if self.ZMQ_CONTEXT is None:
+			self.ZMQ_CONTEXT = zmq.Context()
+		return self.ZMQ_CONTEXT
+	
+	@classmethod
+	def getZMQSocket( self, url ):
+		if not self.ZMQ_SOCKETS.has_key(url):
+			import zmq
+			self.ZMQ_SOCKETS[url] = self.getZMQContext().socket(zmq.PUB)
+			self.ZMQ_SOCKETS[url].bind(url)
+		return self.ZMQ_SOCKETS[url]
+
+	def __init__( self, variableName, host="0.0.0.0", port=9009, extract=lambda _:_.result):
+		Action.__init__(self)
+		self.host      = host
+		self.port      = port
+		self.name      = variableName
+		self.url       = "tcp://%s:%s" % (self.host, self.port)
+		self.extractor = extract
+		self.socket    = ZMQPublish.getZMQSocket(self.url)
+
+	def send( self, runner ):
+		# FIXME: I think this is a blocking operation
+		message = "%s:application/json:%s" % (self.name, json.dumps(self.extractor(runner)))
+		# NOTE: ZMQ PUB is asynchronous, ZMQ DOWNSTREAM is not !
+		self.socket.send(message)
+		return message
+
+	def run( self, monitor, service, rule, runner):
+		self.send(runner)
 
 # -----------------------------------------------------------------------------
 #
@@ -1146,7 +1194,7 @@ class Monitor:
 					action_object = service.getAction(action)
 					action_runner = Runner.Create(action_object)
 					if action_runner:
-						action_runner.run(runner, service, rule, runner)
+						action_runner.run(self, service, rule, runner)
 					else:
 						self.logger.err("Cannot create action runner for: %s" % (action_object))
 		elif isinstance(runner.result, Failure):
@@ -1157,7 +1205,7 @@ class Monitor:
 					action_object = service.getAction(action)
 					action_runner = Runner.Create(action_object)
 					if action_runner:
-						action_runner.run(runner, service, rule, runner)
+						action_runner.run(self, service, rule, runner)
 					else:
 						self.logger.err("Cannot create action runner for: %s" % (action_object))
 			else:
