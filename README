@@ -1,5 +1,5 @@
 == Watchdog
-== Service Monitoring and Data-collecting daemon
+== Server monitoring and data-collection daemon
 
 Sorry, no 'setup.py' for now. Just have a look in the 'Examples' and 'Test'
 directories for more info. Just be sure that 'Source/watchdog.py' is in
