@@ -1,41 +1,8 @@
-Sleeping for 9.99852709961
-HTTP(GET="localhost:8000/",freq=Time.ms(1000)) FAILED
-HTTP(GET="bd-1.weservemanyads.com:9030/api/ping",freq=Time.ms(1000)) FAILED
-Running action: restart
-Running action: log
-Running action: notify
-1.28284770433e+12: bidserver :: HTTP(GET="bd-1.weservemanyads.com:9030/api/ping",freq=Time.ms(1000))
+== Watchdog
+== Service Monitoring and Data-collecting daemon
 
-Error: could not find config file /etc/supervisord.conf
-For help, use /usr/local/bin/supervisorctl -h
-HTTP(GET="localhost:8000/",freq=Time.ms(1000)) FAILED
-Sleeping for 9.99856225586
+Sorry, no 'setup.py' for now. Just have a look in the 'Examples' and 'Test'
+directories for more info. Just be sure that 'Source/watchdog.py' is in
+your $PYTHONPATH.
 
-
-Watchdog: sleeping for 9.9s
-
-[!] Failure on HTTP(GET="localhost:8000/",freq=Time.ms(1000))
---- triggering: restart, log, notify
-
-
-Rules
-=====
-
-- SystemHealth
-
-- HTTP
-
-Testing:
-- Succeed
-- Fail
-
-
-Actions
-=======
-
-Incident
-Log
-LogResult
-
-SendStat
-
+ -- Sébastien

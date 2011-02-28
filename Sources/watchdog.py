@@ -208,7 +208,7 @@ class Process:
 	# See <http://linux.die.net/man/5/proc>
 
 	RE_PS_OUTPUT = re.compile("^%s$" % ("\s+".join([
-		"[^.]+",  "(\d+)", "(\d+)", "\d+", "\d+", "\d+", "\d+", "\d?\d\:\d\d", "[^ ]+", "\d\d\:\d\d\:\d\d", "(.+)"
+		"[^.]+",  "(\d+)", "(\d+)", "\d+", "\d+", "\d+", "\d+", "[^ ]+", "[^ ]+", "\d\d\:\d\d\:\d\d", "(.+)"
 	])))
 
 	@classmethod
@@ -222,7 +222,7 @@ class Process:
 		# root      2503  2474  0   902  1264   1 14:02 ?        00:00:00 hald-addon-input: Listening on /dev/input/event10 /dev/input/event4 /dev/input/event11 /dev/input/event9 /dev/in
 		# root      2508  2474  0   902  1228   0 14:02 ?        00:00:00 /usr/lib/hal/hald-addon-rfkill-killswitch
 		# root      2516  2474  0   902  1232   1 14:02 ?        00:00:00 /usr/lib/hal/hald-addon-leds
-
+		# 1000     29393     1  0  6307 17108   1 Feb26 ?        00:00:25 /usr/bin/python /usr/lib/telepathy/telepathy-butterfly'
 		# Note: we skip the header and the trailing EOL
 		for line in popen("ps -AF").split("\n")[1:-1]:
 			match = self.RE_PS_OUTPUT.match(line)
@@ -353,10 +353,14 @@ class System:
 		# /dev/sda5            8364032  500833 7863199    6% /home
 		# /home/sebastien/.Private 8364032  500833 7863199    6% /home/sebastien
 		res = {}
-		for line in popen("df -iP").split("\n")[1:-1]:
+		for line in popen("df -kP").split("\n")[1:-1]:
 			line = RE_SPACES.sub(" ", line).strip().split(" ")
 			system, inodes, used_inodes, free_inodes, usage, mount = line
-			res[mount] = float(usage[:-1]) / 100.0
+			try:
+				usage = float(usage[:-1])
+			except ValueError:
+				usage = 0
+			res[mount] = float(usage) / 100.0
 		return res
 
 	@classmethod
@@ -374,7 +378,10 @@ class System:
 		stat_now = self.CPUStats()
 		res      = []
 		for i in range(len(cpuStat)): res.append( stat_now[i] - cpuStat[i] )
-		usage = (100 - (res[len(res) - 1] * 100.00 / sum(res))) / 100.0
+		try:
+			usage = (100 - (res[len(res) - 1] * 100.00 / sum(res))) / 100.0
+		except ZeroDivisionError:
+			usage = 0
 		return usage
 
 	@classmethod
@@ -546,15 +553,24 @@ class Log(Action):
 	def __call__( self, message ):
 		self.log(message)
 
+class Print(Log):
+
+	def __init__( self, message, path=None, stdout=True, overwrite=False ):
+		Log.__init__(self, path, stdout, overwrite)
+		self.message = message
+
+	def run( self, monitor, service, rule, runner):
+		self.log(self.message + "\n")
+
 class LogResult(Log):
 
-	def __init__( self, message, path=None, stdout=True, process=lambda _:_, overwrite=False ):
+	def __init__( self, message, path=None, stdout=True, extract=lambda r,_:r, overwrite=False ):
 		Log.__init__(self, path, stdout, overwrite)
 		self.message   = message
-		self.processor = process
+		self.extractor = extract
 
 	def successMessage( self, monitor, service, rule, runner ):
-		return "%s %s %s" % (self.preamble(monitor, service, rule, runner), self.message, self.processor(runner.result))
+		return "%s %s %s" % (self.preamble(monitor, service, rule, runner), self.message, self.extractor(runner.result.value, runner))
 
 class LogWatchdogStatus(Log):
 
@@ -577,11 +593,11 @@ class Restart(Action):
 	def run( self, monitor, service, rule, runner ):
 		process_info = Process.Find(self.command)
 		if not process_info:
-			Process.Start(self.command, cwd=cwd)
+			Process.Start(self.command, cwd=self.cwd)
 		else:
 			pid, ppid, cmd = process_info
 			Process.Kill(pid=pid)
-			Process.Start(cmd, cwd=cwd)
+			Process.Start(cmd, cwd=self.cwd)
 		return True
 
 class Email(Action):
@@ -1097,14 +1113,15 @@ class Runner:
 
 	def _run( self ):
 		self.startTime = now()
-		try:
+		#try:
+		if True:
 			self.result = self.runnable.run(*self.args)
 			if isinstance(self.result, Success) or isinstance(self.result, Failure):
 				self.result.duration = self.duration
-		except Exception, e:
-			self.result = e
-			# FIXME: Rewrite this properly
-			Logger.Err("Exception occured in 'run' with: %s %s" % (e, self.runnable))
+		#except Exception, e:
+		#	self.result = e
+		#	# FIXME: Rewrite this properly
+		#	Logger.Err("Exception occured in 'run' with: %s %s" % (e, self.runnable))
 		self.endTime  = now()
 		self.duration = self.endTime - self.startTime
 		try:
