@@ -12,7 +12,7 @@ Monitor (
 			),
 			Delta(
 				Bandwidth("eth0", freq=Time.s(1)),
-				extract = lambda v,_:v["total"]["bytes"]/1000.0/1000.0,
+				extract = lambda v:v["total"]["bytes"]/1000.0/1000.0,
 				success = [LogResult("myserver.system.eth0.sent=")]
 			),
 			SystemHealth(
