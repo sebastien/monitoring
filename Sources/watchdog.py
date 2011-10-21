@@ -81,6 +81,7 @@ def popen(command, cwd=None):
     cmd.wait()
     return res
 
+
 def timestamp():
     """Returns the current timestamp as an ISO-8601 time
     ("1977-04-22T01:00:00-05:00")"""
@@ -89,12 +90,12 @@ def timestamp():
         n.year, n.month, n.day, n.hour, n.minute, n.second
     )
 
+
 # -----------------------------------------------------------------------------
 #
 # SIGNAL HANDLING
 #
 # -----------------------------------------------------------------------------
-
 class Signals:
     """Takes care of registering/unregistering signals so that shutdown
     (on Ctrl-C) works properly."""
@@ -102,29 +103,31 @@ class Signals:
     SINGLETON = None
 
     @classmethod
-    def Setup( self ):
+    def Setup(self):
         """Sets up the shutdown signal handlers."""
-        if self.SINGLETON is None: self.SINGLETON = Signals()
+        if self.SINGLETON is None:
+            self.SINGLETON = Signals()
         self.SINGLETON.setup()
 
     @classmethod
-    def OnShutdown( self, callback ):
+    def OnShutdown(self, callback):
         """Registers a new callback to be triggered on
         SIGINT/SIGHUP/SIGABRT/SIQUITE/SIGTERM."""
-        if self.SINGLETON is None: self.SINGLETON = Signals()
+        if self.SINGLETON is None:
+            self.SINGLETON = Signals()
         assert not self.SINGLETON.signalsRegistered, "OnShutdown must be called before Setup."
         self.SINGLETON.onShutdown.append(callback)
 
-    def __init__( self ):
-        self.signalsRegistered  = []
-        self.onShutdown         = []
+    def __init__(self):
+        self.signalsRegistered = []
+        self.onShutdown = []
         try:
             import signal
             self.hasSignalModule = True
         except:
             self.hasSignalModule = False
 
-    def setup( self ):
+    def setup(self):
         """Sets up the signals, registering the shutdown function. You only
         need to call this function once."""
         if self.hasSignalModule and not self.signalsRegistered:
@@ -134,7 +137,7 @@ class Signals:
             import signal
             for sig in signals:
                 try:
-                    signal.signal(getattr(signal,sig), self._shutdown)
+                    signal.signal(getattr(signal, sig), self._shutdown)
                     self.signalsRegistered.append(sig)
                 except Exception, e:
                     Logger.Err("[!] watchdog.Signals._registerSignals:%s %s\n" % (sig, e))
@@ -148,46 +151,57 @@ class Signals:
                 pass
         sys.exit()
 
+
 # -----------------------------------------------------------------------------
 #
 # LOGGER
 #
 # -----------------------------------------------------------------------------
-
 class Logger:
 
     SINGLETON = None
 
     @classmethod
-    def I( self ):
-        if self.SINGLETON is None: self.SINGLETON = Logger()
+    def I(self):
+        if self.SINGLETON is None:
+            self.SINGLETON = Logger()
         return self.SINGLETON
-    @classmethod
-    def Err ( self, *message ): self.I().err(*message)
-    @classmethod
-    def Warn( self, *message ): self.I().warn(*message)
-    @classmethod
-    def Info( self, *message ): self.I().info(*message)
-    @classmethod
-    def Sep( self ):  self.I().sep()
-    @classmethod
-    def Output( self, *message ): self.I().output(*message)
 
-    def __init__( self, stream=sys.stdout, prefix="" ):
-        self.stream  = stream
-        self.lock    = threading.RLock()
-        self.prefix  = prefix
+    @classmethod
+    def Err(self, *message):
+        self.I().err(*message)
 
-    def err( self, *message ):
+    @classmethod
+    def Warn(self, *message):
+        self.I().warn(*message)
+
+    @classmethod
+    def Info(self, *message):
+        self.I().info(*message)
+
+    @classmethod
+    def Sep(self):
+        self.I().sep()
+
+    @classmethod
+    def Output(self, *message):
+        self.I().output(*message)
+
+    def __init__(self, stream=sys.stdout, prefix=""):
+        self.stream = stream
+        self.lock = threading.RLock()
+        self.prefix = prefix
+
+    def err(self, *message):
         self("[!]", *message)
 
-    def warn( self, *message ):
+    def warn(self, *message):
         self("[-]", *message)
 
-    def info( self, *message ):
+    def info(self, *message):
         self("---", *message)
 
-    def output( self, *message ):
+    def output(self, *message):
         return
         res = []
         for line in message:
@@ -199,13 +213,13 @@ class Logger:
         self.stream.flush()
         self.lock.release()
 
-    def sep( self ):
+    def sep(self):
         self.lock.acquire()
         self.stream.write("\n")
         self.stream.flush()
         self.lock.release()
 
-    def __call__( self, prefix, *message ):
+    def __call__(self, prefix, *message):
         self.lock.acquire()
         message = " ".join(map(str, message))
         self.stream.write("%s %s%s %s\n" % (
@@ -214,12 +228,12 @@ class Logger:
         self.stream.flush()
         self.lock.release()
 
+
 # -----------------------------------------------------------------------------
 #
 # PROCESS INFORMATION
 #
 # -----------------------------------------------------------------------------
-
 class Process:
     """A collection of utilities to manipulate and interact with running
     processes."""
@@ -230,7 +244,7 @@ class Process:
     ])))
 
     @classmethod
-    def Find( self, command, compare=(lambda a,b: a == b) ):
+    def Find(self, command, compare=(lambda a, b: a == b)):
         # FIXME: Probably better to direcly use List()
         # The output looks like this
         # 1000      2446     1 12 84048 82572   0 14:02 ?        00:04:08 python /usr/lib/exaile/exaile.py --datadir=/usr/share/exaile/data --startgui
@@ -245,9 +259,9 @@ class Process:
         for line in popen("ps -AF").split("\n")[1:-1]:
             match = self.RE_PS_OUTPUT.match(line)
             if match:
-                pid  = match.group(1)
+                pid = match.group(1)
                 ppid = match.group(2)
-                cmd  = match.group(3)
+                cmd = match.group(3)
                 if compare(command, cmd):
                     return (pid, ppid, cmd)
             else:
@@ -255,7 +269,7 @@ class Process:
         return None
 
     @classmethod
-    def List( self ):
+    def List(self):
         """Returns a map of pid to cmdline"""
         res = {}
         for p in glob.glob("/proc/*/cmdline"):
@@ -265,7 +279,7 @@ class Process:
         return res
 
     @classmethod
-    def GetWith( self, expression, compare=(lambda a,b:fnmatch.fnmatch(a,b))):
+    def GetWith(self, expression, compare=(lambda a, b: fnmatch.fnmatch(a, b))):
         """Returns a list of all processes that contain the expression
         in their command line."""
         res = []
@@ -276,55 +290,55 @@ class Process:
         return res
 
     @classmethod
-    def Status( self,pid ):
+    def Status(self, pid):
         res = {}
         pid = int(pid)
         for line in cat("/proc/%d/status" % (pid)).split("\n"):
-            if not line: continue
+            if not line:
+                continue
             name, value = line.split(":", 1)
             res[name.lower()] = value.strip()
         return res
 
-
     @classmethod
-    def Start( self, command, cwd=None ):
+    def Start(self, command, cwd=None):
         # FIXME: Not sure if we need something like & at the end
         command += ""
         Logger.Info("Starting process: " + repr(command))
         popen(command, cwd)
 
     @classmethod
-    def Kill( self, pid ):
+    def Kill(self, pid):
         Logger.Info("Killing process: " + repr(pid))
         popen("kill -9 %s" % (pid))
 
     @classmethod
-    def Info( self, pid ):
-        status   = Process.Status(pid)
+    def Info(self, pid):
+        status = Process.Status(pid)
         proc_pid = "/proc/%d" % (pid)
         if not os.path.exists(proc_pid):
             dict(
-                pid         = pid,
-                exists      = False,
-                probeStart  = self.firstProbe,
-                probeEnd    = self.lastProbe
+                pid=pid,
+                exists=False,
+                probeStart=self.firstProbe,
+                probeEnd=self.lastProbe
             )
         else:
-            status  = Process.Status(pid)
+            status = Process.Status(pid)
             started = os.stat(proc_pid)[stat.ST_MTIME]
             running = time.time() - started
             # FIXME: Add process start time, end time, cpu %
             return dict(
-                pid      = pid,
-                exists   = True,
-                fd       = count("/proc/%d/fd"      % (pid)),
-                tasks    = count("/proc/%d/task"    % (pid)),
-                threads  = int(status["threads"]),
-                cmdline  = cat  ("/proc/%d/cmdline" % (pid)),
-                fdsize   = status["fdsize"],
-                vmsize   = status["vmsize"],
-                started  = started,
-                running  = running
+                pid=pid,
+                exists=True,
+                f=count("/proc/%d/fd" % (pid)),
+                tasks=count("/proc/%d/task" % (pid)),
+                threads=int(status["threads"]),
+                cmdline=cat("/proc/%d/cmdline" % (pid)),
+                fdsize=status["fdsize"],
+                vmsize=status["vmsize"],
+                started=started,
+                running=running
             )
 
 # -----------------------------------------------------------------------------
