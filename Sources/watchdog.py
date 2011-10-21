@@ -672,7 +672,6 @@ class Email(Action):
             Logger.Err("Could not send email to %s (#%s)" % (self.recipient, monitor.iteration))
 
     def send(self, monitor=None, service=None, rule=None, runner=None):
-        data = {}
         server = smtplib.SMTP(self.host)
         origin = self.origin or "<Watchdog for %s> watchdog@%s" % (service and service.name, popen("hostname")[:-1])
         message = string.Template(self.MESSAGE).safe_substitute({
