@@ -824,14 +824,16 @@ class Rule:
     COUNT = 0
 
     def __init__(self, freq, fail=(), success=()):
-        self.id      = Rule.COUNT
+        self.id = Rule.COUNT
         # Ensures that the given data is given as a list
-        if not (type(fail)    in (tuple, list)): fail    = tuple([fail])
-        if not (type(success) in (tuple, list)): success = tuple([success])
-        Rule.COUNT   += 1
+        if not (type(fail) in (tuple, list)):
+            fail = tuple([fail])
+        if not (type(success) in (tuple, list)):
+            success = tuple([success])
+        Rule.COUNT += 1
         self.lastRun = 0
-        self.freq    = freq
-        self.fail    = fail
+        self.freq = freq
+        self.fail = fail
         self.success = success
 
     def shouldRunIn(self):
@@ -848,11 +850,12 @@ class Rule:
         self.touch()
         return Success()
 
+
 class HTTP(Rule):
 
     def __init__(self, GET=None, POST=None, timeout=Time.s(10), freq=Time.m(1), fail=(), success=()):
         Rule.__init__(self, freq, fail, success)
-        url    = None
+        url = None
         method = None
         if GET:
             url = GET
@@ -860,29 +863,31 @@ class HTTP(Rule):
         if POST:
             url = POST
             method = "POST"
-        if url.startswith("http://"): url = url[7:]
-        server, uri  = url.split("/",  1)
-        if not uri.startswith("/"): uri = "/" + uri
+        if url.startswith("http://"):
+            url = url[7:]
+        server, uri = url.split("/",  1)
+        if not uri.startswith("/"):
+            uri = "/" + uri
         if server.find(":") >= 0:
             server, port = server.split(":", 1)
         else:
             port = 80
-        self.server  = server
-        self.port    = port
-        self.uri     = uri
-        self.body    = ""
+        self.server = server
+        self.port = port
+        self.uri = uri
+        self.body = ""
         self.headers = None
-        self.method  = "GET"
+        self.method = "GET"
         self.timeout = timeout / 1000.0
 
     def run(self):
         Rule.run(self)
         conn = httplib.HTTPConnection(self.server, self.port, timeout=self.timeout)
-        res  = None
+        res = None
         try:
             conn.request(self.method, self.uri, self.body, self.headers or {})
             resp = conn.getresponse()
-            res  = resp.read()
+            res = resp.read()
         except socket.error, e:
             return Failure("Socket error: %s" % (e))
         if resp.status >= 400:
@@ -892,6 +897,7 @@ class HTTP(Rule):
 
     def __repr__(self):
         return "HTTP(%s=\"%s:%s%s\",timeout=%s)" % (self.method, self.server, self.port, self.uri, self.timeout)
+
 
 class SystemHealth(Rule):
     """Defines thresholds for key system health stats."""
@@ -905,9 +911,9 @@ class SystemHealth(Rule):
 
         """
         Rule.__init__(self, freq, fail, success)
-        self.cpu  = cpu
+        self.cpu = cpu
         self.disk = disk
-        self.mem  = mem
+        self.mem = mem
 
     def run(self):
         """Checks wether the collected stats are within the threshold or not. In
@@ -919,9 +925,9 @@ class SystemHealth(Rule):
 
         """
         errors = []
-        cpu    = System.CPUUsage()
-        mem    = System.MemoryUsage()
-        disk   = System.DiskUsage()
+        cpu = System.CPUUsage()
+        mem = System.MemoryUsage()
+        disk = System.DiskUsage()
         if cpu > self.cpu:
             errors.append(("cpu", cpu, self.cpu))
         if mem > self.mem:
@@ -934,6 +940,7 @@ class SystemHealth(Rule):
         else:
             return Success()
 
+
 class ProcessInfo(Rule):
     """Returns statistics about the process with the given command, the rule
     returns the same value as 'Process.Info'."""
@@ -943,9 +950,9 @@ class ProcessInfo(Rule):
         self.command = command
 
     def run(self):
-        pid =  Process.GetWith(self.command)
+        pid = Process.GetWith(self.command)
         if pid:
-            pid  = pid[0]
+            pid = pid[0]
             info = Process.Info(pid)
             if info["exists"]:
                 return Success(info)
@@ -954,6 +961,7 @@ class ProcessInfo(Rule):
         else:
             return Failure("Cannot find process with command like: %s" % (self.command))
 
+
 class SystemInfo(Rule):
 
     def __init__(self, freq, fail=(), success=()):
@@ -961,10 +969,11 @@ class SystemInfo(Rule):
 
     def run(self):
         return Success(dict(
-            memoryUsage = System.MemoryUsage(),
-            diskUsage   = System.DiskUsage(),
-            cpuUsage    = System.CPUUsage(),
+            memoryUsage=System.MemoryUsage(),
+            diskUsage=System.DiskUsage(),
+            cpuUsage=System.CPUUsage(),
         ))
+
 
 class Bandwidth(Rule):
     """Measure the bandwiths for the system"""
@@ -974,11 +983,12 @@ class Bandwidth(Rule):
         self.interface = interface
 
     def run(self):
-        res =  System.GetInterfaceStats()
+        res = System.GetInterfaceStats()
         if res.get(self.interface):
             return Success(res[self.interface])
         else:
             return Failure("Cannot find data for interface: %s" % (self.interface))
+
 
 class Mem(Rule):
 
@@ -994,15 +1004,16 @@ class Mem(Rule):
     def __repr__(self):
         return "Mem(max=Size.b(%s), freq.Time.ms(%s))" % (self.max, self.freq)
 
+
 class Delta(Rule):
     """Executes a rule and extracts a numerical value out of it, successfully returning
     when at least two values have been extracted from the given rule."""
 
-    def __init__(self, rule, extract=lambda res:res, fail=(), success=()):
+    def __init__(self, rule, extract=lambda res: res, fail=(), success=()):
         Rule.__init__(self, rule.freq, fail, success)
         self.extractor = extract
-        self.rule      = rule
-        self.previous  = None
+        self.rule = rule
+        self.previous = None
 
     def run(self):
         res = self.rule.run()
@@ -1018,6 +1029,7 @@ class Delta(Rule):
         else:
             return res
 
+
 class Succeed(Rule):
 
     def __init__(self, freq, actions=()):
@@ -1026,10 +1038,12 @@ class Succeed(Rule):
     def run(self):
         return Success()
 
+
 class Always(Succeed):
 
     def __init__(self, freq, actions=()):
         Succeed.__init__(self, freq, actions)
+
 
 class Fail(Rule):
 
@@ -1039,12 +1053,12 @@ class Fail(Rule):
     def run(self):
         return Failure()
 
+
 # -----------------------------------------------------------------------------
 #
 # SERVICE
 #
 # -----------------------------------------------------------------------------
-
 class Service:
     """A service is a collection of rules and actions. Rules are executed
     and actions are triggered according to the rules result."""
@@ -1052,10 +1066,11 @@ class Service:
     # FIXME: Add a check() method that checks that actions exists for rules
 
     def __init__(self, name=None, monitor=(), actions={}):
-        self.name    = name
-        self.rules   = []
+        self.name = name
+        self.rules = []
         self.actions = {}
-        if not (type(monitor) in (tuple,list)): monitor = tuple([monitor])
+        if not (type(monitor) in (tuple, list)):
+            monitor = tuple([monitor])
         map(self.addRule, monitor)
         self.actions.update(actions)
 
@@ -1080,12 +1095,12 @@ class Service:
         else:
             Logger.Err("Cannot execute action because Runner.POOL is full: %s" % (self))
 
+
 # -----------------------------------------------------------------------------
 #
 # RUNNER
 #
 # -----------------------------------------------------------------------------
-
 # FIXME: Nos sure if pools are really necessary, they're not used so far
 class Pool:
     """Pools are used in Watchdog to limit the number of runners/rules executed
@@ -1113,6 +1128,7 @@ class Pool:
     def size(self):
         return len(self.elements)
 
+
 class Runner:
     """Wraps a Rule or Action in a separate thread an invoked the 'onEnded'
     callback once the rule is executed."""
@@ -1130,17 +1146,17 @@ class Runner:
 
     def __init__(self, runnable, context=None, iteration=None, pool=None):
         assert isinstance(runnable, Action) or isinstance(runnable, Rule)
-        self._onRunEnded  = None
-        self.runnable     = runnable
-        self.context      = context
-        self.result       = None
-        self.iteration    = iteration
+        self._onRunEnded = None
+        self.runnable = runnable
+        self.context = context
+        self.result = None
+        self.iteration = iteration
         self.creationTime = now()
-        self.startTime    = -1
-        self.endTime      = -1
-        self.duration     = 0
-        self.pool         = pool
-        self._thread      = threading.Thread(target=self._run)
+        self.startTime = -1
+        self.endTime = -1
+        self.duration = 0
+        self.pool = pool
+        self._thread = threading.Thread(target=self._run)
 
     def onRunEnded(self, callback):
         self._onRunEnded = callback
@@ -1165,10 +1181,11 @@ class Runner:
         #   self.result = e
         #   # FIXME: Rewrite this properly
         #   Logger.Err("Exception occured in 'run' with: %s %s" % (e, self.runnable))
-        self.endTime  = now()
+        self.endTime = now()
         self.duration = self.endTime - self.startTime
         try:
-            if self.pool: self.pool.remove(self)
+            if self.pool:
+                self.pool.remove(self)
         except Exception, e:
             Logger.Err("Exception occured in 'run/pool' with: %s %s" % (e, self.runnable))
         try:
@@ -1177,12 +1194,12 @@ class Runner:
         except Exception, e:
             Logger.Err("Exception occured in 'run/onRunEnded' with: %s %s" % (e, self.runnable))
 
+
 # -----------------------------------------------------------------------------
 #
 # MONITOR
 #
 # -----------------------------------------------------------------------------
-
 class Monitor:
     """The monitor is at the core of the watchdog. Rules declared in registered
     services are run, and actions are executed according to the result."""
@@ -1190,13 +1207,13 @@ class Monitor:
     FREQUENCY = Time.s(5)
 
     def __init__(self, *services):
-        self.services   = []
-        self.isRunning  = False
-        self.freq       = self.FREQUENCY
-        self.logger     = Logger(prefix="watchdog ")
-        self.iteration  = 0
+        self.services = []
+        self.isRunning = False
+        self.freq = self.FREQUENCY
+        self.logger = Logger(prefix="watchdog ")
+        self.iteration = 0
         self.iterationLastDuration = 0
-        self.runners    = {}
+        self.runners = {}
         map(self.addService, services)
 
     def runnerForRule(self, rule, context, iteration):
@@ -1204,7 +1221,7 @@ class Monitor:
             self.logger.err("Previous iteration's rule is still running: %s, you should increase its frequency." % (rule))
             return None
         else:
-            runner = Runner.Create(rule,context=context,iteration=iteration)
+            runner = Runner.Create(rule, context=context, iteration=iteration)
             self.runners[runner.runnable.id] = True
             if runner:
                 runner.onRunEnded(self.onRuleEnded)
@@ -1228,7 +1245,7 @@ class Monitor:
                         next_run = min(now() + to_wait, next_run)
                     else:
                         # Create a runner
-                        runner = self.runnerForRule(rule,service,self.iteration)
+                        runner = self.runnerForRule(rule, service, self.iteration)
                         if runner:
                             rule.touch()
                             runner.run()
@@ -1258,7 +1275,7 @@ class Monitor:
         """Callback bound to 'Runner.onRunEnded', trigerred once a rule was executed.
         If the rule failed, actions will be executed."""
         # FIXME: Handle exception
-        rule    = runner.runnable
+        rule = runner.runnable
         service = runner.context
         if isinstance(runner.result, Success):
             if rule.success:
