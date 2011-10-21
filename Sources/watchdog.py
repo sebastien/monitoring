@@ -1215,7 +1215,7 @@ class Monitor:
         map(self.addService, services)
 
     def runnerForRule(self, rule, context, iteration):
-        if self.runners.has_key(rule.id):
+        if rule.id in self.runners.keys():
             self.logger.err("Previous iteration's rule is still running: %s, you should increase its frequency." % (rule))
             return None
         else:
