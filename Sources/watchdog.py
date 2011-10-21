@@ -783,7 +783,7 @@ class ZMQPublish(Action):
 
     @classmethod
     def getZMQSocket(self, url):
-        if not self.ZMQ_SOCKETS.has_key(url):
+        if url not in self.ZMQ_SOCKETS.keys():
             import zmq
             self.ZMQ_SOCKETS[url] = self.getZMQContext().socket(zmq.PUB)
             self.ZMQ_SOCKETS[url].bind(url)
