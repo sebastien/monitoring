@@ -854,13 +854,13 @@ class HTTP(Rule):
     def __init__(self, GET=None, POST=None, timeout=Time.s(10), freq=Time.m(1), fail=(), success=()):
         Rule.__init__(self, freq, fail, success)
         url = None
-        method = None
+        #method = None
         if GET:
             url = GET
-            method = "GET"
+            #method = "GET"
         if POST:
             url = POST
-            method = "POST"
+            #method = "POST"
         if url.startswith("http://"):
             url = url[7:]
         server, uri = url.split("/",  1)
