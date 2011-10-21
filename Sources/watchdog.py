@@ -1084,7 +1084,7 @@ class Service:
 
     def act(self, name, event):
         """Runs the action with the given name."""
-        assert self.actions.has_key(name)
+        assert name in self.actions.keys()
         # NOTE: Document the protocol
         # FIXME: Use pools ?
         runner = Runner.Create(self.actions[name])
