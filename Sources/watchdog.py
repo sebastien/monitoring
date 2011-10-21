@@ -761,7 +761,6 @@ class Incident(Action):
         elapsed_time = now() - self.errorStartTime
         self.errorValues.append(runner.result)
         if len(self.errorValues) >= self.errors and elapsed_time >= self.during:
-            error_values = self.errorValues
             self.errorValues = []
             for action in self.actions:
                 # FIXME: Should clone the runner and return the result
