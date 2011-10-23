@@ -672,7 +672,6 @@ class Email(Action):
             Logger.Err("Could not send email to %s (#%s)" % (self.recipient, monitor.iteration))
 
     def send(self, monitor=None, service=None, rule=None, runner=None):
-        data = {}
         server = smtplib.SMTP(self.host)
         origin = self.origin or "<Watchdog for %s> watchdog@%s" % (service and service.name, popen("hostname")[:-1])
         message = string.Template(self.MESSAGE).safe_substitute({
@@ -762,7 +761,6 @@ class Incident(Action):
         elapsed_time = now() - self.errorStartTime
         self.errorValues.append(runner.result)
         if len(self.errorValues) >= self.errors and elapsed_time >= self.during:
-            error_values = self.errorValues
             self.errorValues = []
             for action in self.actions:
                 # FIXME: Should clone the runner and return the result
@@ -785,7 +783,7 @@ class ZMQPublish(Action):
 
     @classmethod
     def getZMQSocket(self, url):
-        if not self.ZMQ_SOCKETS.has_key(url):
+        if url not in self.ZMQ_SOCKETS.keys():
             import zmq
             self.ZMQ_SOCKETS[url] = self.getZMQContext().socket(zmq.PUB)
             self.ZMQ_SOCKETS[url].bind(url)
@@ -856,13 +854,13 @@ class HTTP(Rule):
     def __init__(self, GET=None, POST=None, timeout=Time.s(10), freq=Time.m(1), fail=(), success=()):
         Rule.__init__(self, freq, fail, success)
         url = None
-        method = None
+        #method = None
         if GET:
             url = GET
-            method = "GET"
+            #method = "GET"
         if POST:
             url = POST
-            method = "POST"
+            #method = "POST"
         if url.startswith("http://"):
             url = url[7:]
         server, uri = url.split("/",  1)
@@ -1086,7 +1084,7 @@ class Service:
 
     def act(self, name, event):
         """Runs the action with the given name."""
-        assert self.actions.has_key(name)
+        assert name in self.actions.keys()
         # NOTE: Document the protocol
         # FIXME: Use pools ?
         runner = Runner.Create(self.actions[name])
@@ -1217,7 +1215,7 @@ class Monitor:
         map(self.addService, services)
 
     def runnerForRule(self, rule, context, iteration):
-        if self.runners.has_key(rule.id):
+        if rule.id in self.runners.keys():
             self.logger.err("Previous iteration's rule is still running: %s, you should increase its frequency." % (rule))
             return None
         else:
