@@ -851,16 +851,20 @@ class Rule:
 
 class HTTP(Rule):
 
-    def __init__(self, GET=None, POST=None, timeout=Time.s(10), freq=Time.m(1), fail=(), success=()):
+    def __init__(self, GET=None, POST=None, HEAD=None, timeout=Time.s(10), freq=Time.m(1), fail=(), success=()):
         Rule.__init__(self, freq, fail, success)
         url = None
         #method = None
         if GET:
+            method = "GET"
             url = GET
-            #method = "GET"
-        if POST:
+        elif POST:
+            method = "GET"
             url = POST
-            #method = "POST"
+        elif HEAD:
+            method = "HEAD"
+            url = HEAD
+
         if url.startswith("http://"):
             url = url[7:]
         server, uri = url.split("/",  1)
@@ -875,7 +879,7 @@ class HTTP(Rule):
         self.uri = uri
         self.body = ""
         self.headers = None
-        self.method = "GET"
+        self.method = method
         self.timeout = timeout / 1000.0
 
     def run(self):
