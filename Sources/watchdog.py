@@ -6,24 +6,11 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   10-Feb-2010
-# Last mod.         :   27-Oct-2010
+# Last mod.         :   27-Dec-2011
 # -----------------------------------------------------------------------------
 
-import re
-import sys
-import os
-import time
-import datetime
-import stat
-import smtplib
-import string
-import json
-import fnmatch
-import httplib
-import socket
-import threading
-import subprocess
-import glob
+import re, sys, os, time, datetime, stat, smtplib, string, json, fnmatch
+import httplib, socket, threading, subprocess, glob
 
 # TODO: Add System health metrics (CPU%, MEM%, DISK%, I/O, INODES)
 
@@ -48,24 +35,28 @@ import glob
 #    _start_new_thread(self.__bootstrap, ())
 #thread.error: can't start new thread
 
-__version__ = "0.9.2"
-
+__version__ = "0.9.3"
 
 RE_SPACES = re.compile("\s+")
 RE_INTEGER = re.compile("\d+")
 
-
 def cat(path):
     """Outputs the content of the file at the given path"""
-    f = file(path, 'r')
-    d = f.read()
-    f.close()
+    try:
+        with file(path, 'r') as f:
+            d = f.read()
+    except OSError,e:
+        d = None
     return d
 
 
 def count(path):
     """Count the number of files and directories at the given path"""
-    return len(os.listdir(path))
+    try:
+        return len(os.listdir(path))
+    except OSError,e:
+        # We most probably hit a permission denied here
+        return -1
 
 
 def now():
@@ -618,6 +609,15 @@ class LogWatchdogStatus(Log):
     def successMessage(self, monitor, service, rule, runner):
         return "%s %s" % (self.preamble(monitor, service, rule, runner), monitor.getStatusMessage())
 
+class Run(Action):
+
+    def __init__(self, command, cwd=None):
+        self.command = command
+        self.cwd = cwd
+
+    def run(self, monitor, service, rule, runner):
+        popen(self.command, self.cwd)
+        return True
 
 class Restart(Action):
     """Restarts the process with the given command, killing the process if it
@@ -1311,4 +1311,4 @@ FAILURE = Failure()
 # Updates the CPU stats so that CPUUsage works
 System.CPUStats()
 
-# EOF - vim: tw=80 ts=4 sw=4 noet
+# EOF - vim: tw=80 ts=4 sw=4 et
