@@ -6,7 +6,7 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   10-Feb-2010
-# Last mod.         :   27-Dec-2011
+# Last mod.         :   20-Mar-2012
 # -----------------------------------------------------------------------------
 
 import re, sys, os, time, datetime, stat, smtplib, string, json, fnmatch
@@ -37,8 +37,11 @@ import httplib, socket, threading, subprocess, glob
 
 __version__ = "0.9.3"
 
-RE_SPACES = re.compile("\s+")
+RE_SPACES  = re.compile("\s+")
 RE_INTEGER = re.compile("\d+")
+
+def config(variable, default, normalize=lambda _:_):
+	return normalize(os.environ.get(variable.upper().replace(".","_")) or default)
 
 def cat(path):
 	"""Outputs the content of the file at the given path"""
@@ -268,7 +271,7 @@ class Process:
 		for p in glob.glob("/proc/*/cmdline"):
 			process = p.split("/")[2]
 			if process != "self":
-				res[int(process)] = cat(p)
+				res[int(process)] = cat(p).replace("\x00", " ")
 		return res
 
 	@classmethod
