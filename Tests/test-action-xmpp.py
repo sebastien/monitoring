@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-from watchdog import *
+from daemonwatch import *
 action = XMPP(
 	"sebastien@njs.netlab.cz",
-	"Watchdog: testing iteration #${iteration}@${timestamp}=${result}",
+	"Daemonwatch: testing iteration #${iteration}@${timestamp}=${result}",
 	"happyclinic@jabber.org", "nobber"
 )
 Monitor(

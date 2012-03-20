@@ -1,5 +1,5 @@
-Watchdog - Server monitoring and data-collection Daemon
-=======================================================
+Daemonwatch - Server monitoring and data-collection daemon
+==========================================================
 
 We want...
 ----------
@@ -29,9 +29,9 @@ Use Cases
 Installation
 ------------
 Sorry, no 'setup.py' for now. Just have a look in the 'Examples' and 'Test'
-directories for more info. Just be sure that 'Source/watchdog.py' is
+directories for more info. Just be sure that 'Source/daemonwatch.py' is
 in 'sys.path'.
 
 More?
 -----
-Read the `presentation on Watchdog <http://ur1.ca/45ku5>`_
+Read the `presentation on Daemonwatch <http://ur1.ca/45ku5>`_

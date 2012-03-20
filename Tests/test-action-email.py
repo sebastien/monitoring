@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-from watchdog import *
+from daemonwatch import *
 action = Email(
 	"sebastien@ffctn.com",
-	"[Watchdog] Test", "Sample message", 
+	"[Daemonwatch] Test", "Sample message", 
 	"smtp.gmail.com", "mail.agent@ffctn.com", "ffctnmailagent"
 )
 Monitor(

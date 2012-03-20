@@ -1,4 +1,4 @@
-from watchdog import *
+from daemonwatch import *
 Monitor (
 	Service(
 		name    = "system-health",
@@ -18,7 +18,7 @@ Monitor (
 			SystemHealth(
 				cpu=0.90, disk=0.90, mem=0.90,
 				freq=Time.s(60),
-				fail=[Log(path="watchdog-system-failures.log")]
+				fail=[Log(path="daemonwatch-system-failures.log")]
 			),
 		)
 	)

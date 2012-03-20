@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-from watchdog import *
+from daemonwatch import *
 Monitor(
 	Service(
 		name = "google-search-latency",
 		monitor = (
 			HTTP(
-				GET="http://www.google.ca/search?q=watchdog",
+				GET="http://www.google.ca/search?q=daemonwatch",
 				freq=Time.s(1),
 				timeout=Time.ms(80),
 				fail=[
