@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 from daemonwatch import *
+import json
+config = json.loads(file("email.passwd").read())
 action = Email(
 	"sebastien@ffctn.com",
 	"[Daemonwatch] Test", "Sample message", 
-	"smtp.gmail.com", "mail.agent@ffctn.com", "ffctnmailagent"
+	email["smtp"],email["user"],email["password"]
 )
 Monitor(
 	Service(
