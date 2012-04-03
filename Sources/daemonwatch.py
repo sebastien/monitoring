@@ -1251,7 +1251,7 @@ class Monitor:
 			return None
 		else:
 			runner = Runner.Create(rule, context=context, iteration=iteration)
-			self.runners[runner.runnable.id] = True
+			self.runners[runner.runnable.id] = runner
 			if runner:
 				runner.onRunEnded(self.onRuleEnded)
 				return runner
