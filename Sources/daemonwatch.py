@@ -67,16 +67,66 @@ def now():
 	return time.time() * 1000
 
 
-def popen(command, cwd=None, check=False):
+def spawn(cmd, cwd=None):
+	"""Spawn a completely detached subprocess (i.e., a daemon).
+	"""
+	# FROM: http://stackoverflow.com/questions/972362/spawning-process-from-python
+	# fork the first time (to make a non-session-leader child process)
+	try:
+		pid = os.fork()
+	except OSError, e:
+		raise RuntimeError("1st fork failed: %s [%d]" % (e.strerror, e.errno))
+	if pid != 0:
+		# parent (calling) process is all done
+		return pid
+	# detach from controlling terminal (to make child a session-leader)
+	os.setsid()
+	try:
+		pid = os.fork()
+	except OSError, e:
+		raise RuntimeError("2nd fork failed: %s [%d]" % (e.strerror, e.errno))
+		raise Exception, "%s [%d]" % (e.strerror, e.errno)
+	if pid != 0:
+		# child process is all done
+		os._exit(0)
+	# grandchild process now non-session-leader, detached from parent
+	# grandchild process must now close all open files
+	try:
+		maxfd = os.sysconf("SC_OPEN_MAX")
+	except (AttributeError, ValueError):
+		maxfd = 1024
+	for fd in range(maxfd):
+		try:
+			os.close(fd)
+		except OSError: # ERROR, fd wasn't open to begin with (ignored)
+			pass
+	# redirect stdin, stdout and stderr to /dev/null
+	os.open(REDIRECT_TO, os.O_RDWR) # standard input (0)
+	os.dup2(0, 1)
+	os.dup2(0, 2)
+	# and finally let's execute the executable for the daemon!
+	try:
+		args = filter(lambda _:_, map(lambda _:_.strip(), cmd.split(" ")))
+		path_to_executable = args[0]
+		args = args[1:]
+		os.execv(path_to_executable, args)
+	except Exception, e:
+		# oops, we're cut off from the world, let's just give up
+		os._exit(255)
+
+def popen(command, cwd=None, check=False, detach=False):
 	"""Returns the stdout from the given command, using the subproces
 	command."""
-	cmd      = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd)
-	status   = cmd.wait()
-	res, err = cmd.communicate()
-	if status == 0:
-		return res
+	if detach:
+		return spawn(command, cwd)
 	else:
-		return (status, err)
+		cmd      = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd)
+		status   = cmd.wait()
+		res, err = cmd.communicate()
+		if status == 0:
+			return res
+		else:
+			return (status, err)
 
 def timestamp():
 	"""Returns the current timestamp as an ISO-8601 time
@@ -628,12 +678,13 @@ class LogDaemonwatchStatus(Log):
 
 class Run(Action):
 
-	def __init__(self, command, cwd=None):
+	def __init__(self, command, cwd=None, detach=False):
 		self.command = command
 		self.cwd = cwd
+		self.detach = detach
 
 	def run(self, monitor, service, rule, runner):
-		res = popen(self.command, self.cwd, check=True)
+		res = popen(self.command, self.cwd, check=True, detach=self.detach)
 		if type(res) == tuple:
 			Logger.Err("Run:", self.command, " failed with ", repr(res[1]))
 			return False
@@ -1261,7 +1312,7 @@ class Monitor:
 	def addService(self, service):
 		self.services.append(service)
 
-	def run(self):
+	def run(self, iterations=-1):
 		Signals.Setup()
 		self.isRunning = True
 		while self.isRunning:
@@ -1296,6 +1347,8 @@ class Monitor:
 				if sleep_time > 1000:
 					self.logger.info("Sleeping for %0.2fs" % (sleep_time / 1000.0))
 				time.sleep(sleep_time / 1000.0)
+			if iterations > 0 and self.iteration >= iterations:
+				self.isRunning = False
 
 	def getStatusMessage(self):
 		return "#%d (runners=%d,threads=%d,duration=%0.2fs)" % (self.iteration, Runner.POOL.size(), threading.activeCount(), self.iterationLastDuration)
