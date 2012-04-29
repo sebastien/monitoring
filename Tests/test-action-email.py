@@ -5,7 +5,7 @@ config = json.loads(file("email.passwd").read())
 action = Email(
 	"sebastien@ffctn.com",
 	"[Daemonwatch] Test", "Sample message", 
-	email["smtp"],email["user"],email["password"]
+	config["smtp"],config["user"],config["password"]
 )
 Monitor(
 	Service(

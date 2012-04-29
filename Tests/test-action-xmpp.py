@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 from daemonwatch import *
+import json
+config = json.loads(file("jabber.passwd").read())
 action = XMPP(
-	"sebastien@njs.netlab.cz",
+	"sebastien@ffctn.com",
 	"Daemonwatch: testing iteration #${iteration}@${timestamp}=${result}",
-	"happyclinic@jabber.org", "nobber"
+	config["user"], config["password"]
 )
 Monitor(
 	Service(
