@@ -3,6 +3,7 @@ Daemonwatch - Server monitoring and data-collection daemon
 
 We want...
 ----------
+
 * to be notified when incidents happen (email, XMPP, ZeroMQ...)
 * automatic actions to be taken (restart, rm, git pull...)
 * to collect system statistics for further processing e.g. graphs
@@ -12,6 +13,7 @@ We want...
 
 Overview
 --------
+
 * monitoring DSL: declarative programming to define monitoring
   strategy
 * wide spectrum: from data collection and incident reporting to taking
@@ -22,16 +24,25 @@ Overview
 
 Use Cases
 ---------
+
 * ensure service availability: test and start/stop when problems
 * collect system statistics/data, log locally and/or remotely
 * alert on system/service health, take actions
 
 Installation
 ------------
-Sorry, no 'setup.py' for now. Just have a look in the 'Examples' and 'Test'
-directories for more info. Just be sure that 'Source/daemonwatch.py' is
-in 'sys.path'.
+
+```
+python setup.py install
+```
+or
+
+```
+easy_install daemonwatch
+```
 
 More?
 -----
-Read the `presentation on Daemonwatch <http://ur1.ca/45ku5>`_
+
+Read the `presentation on Daemonwatch <http://ur1.ca/45ku5>`_ (previously named
+Watchdog).
