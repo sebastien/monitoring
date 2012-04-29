@@ -101,6 +101,10 @@ def spawn(cmd, cwd=None):
 		except OSError: # ERROR, fd wasn't open to begin with (ignored)
 			pass
 	# redirect stdin, stdout and stderr to /dev/null
+	if (hasattr(os, "devnull")):
+		REDIRECT_TO = os.devnull
+	else:
+		REDIRECT_TO = "/dev/null"
 	os.open(REDIRECT_TO, os.O_RDWR) # standard input (0)
 	os.dup2(0, 1)
 	os.dup2(0, 2)
@@ -142,6 +146,7 @@ def timestamp():
 # SIGNAL HANDLING
 #
 # -----------------------------------------------------------------------------
+
 class Signals:
 	"""Takes care of registering/unregistering signals so that shutdown
 	(on Ctrl-C) works properly."""
@@ -149,20 +154,20 @@ class Signals:
 	SINGLETON = None
 
 	@classmethod
-	def Setup(self):
+	def Setup(cls):
 		"""Sets up the shutdown signal handlers."""
-		if self.SINGLETON is None:
-			self.SINGLETON = Signals()
-		self.SINGLETON.setup()
+		if cls.SINGLETON is None:
+			cls.SINGLETON = Signals()
+		cls.SINGLETON.setup()
 
 	@classmethod
-	def OnShutdown(self, callback):
+	def OnShutdown(cls, callback):
 		"""Registers a new callback to be triggered on
 		SIGINT/SIGHUP/SIGABRT/SIQUITE/SIGTERM."""
-		if self.SINGLETON is None:
-			self.SINGLETON = Signals()
-		assert not self.SINGLETON.signalsRegistered, "OnShutdown must be called before Setup."
-		self.SINGLETON.onShutdown.append(callback)
+		if cls.SINGLETON is None:
+			cls.SINGLETON = Signals()
+		assert not cls.SINGLETON.signalsRegistered, "OnShutdown must be called before Setup."
+		cls.SINGLETON.onShutdown.append(callback)
 
 	def __init__(self):
 		self.signalsRegistered = []
@@ -208,30 +213,30 @@ class Logger:
 	SINGLETON = None
 
 	@classmethod
-	def I(self):
-		if self.SINGLETON is None:
-			self.SINGLETON = Logger()
-		return self.SINGLETON
+	def I(cls):
+		if cls.SINGLETON is None:
+			cls.SINGLETON = Logger()
+		return cls.SINGLETON
 
 	@classmethod
-	def Err(self, *message):
-		self.I().err(*message)
+	def Err(cls, *message):
+		cls.I().err(*message)
 
 	@classmethod
-	def Warn(self, *message):
-		self.I().warn(*message)
+	def Warn(cls, *message):
+		cls.I().warn(*message)
 
 	@classmethod
-	def Info(self, *message):
-		self.I().info(*message)
+	def Info(cls, *message):
+		cls.I().info(*message)
 
 	@classmethod
-	def Sep(self):
-		self.I().sep()
+	def Sep(cls):
+		cls.I().sep()
 
 	@classmethod
-	def Output(self, *message):
-		self.I().output(*message)
+	def Output(cls, *message):
+		cls.I().output(*message)
 
 	def __init__(self, stream=sys.stdout, prefix=""):
 		self.stream = stream
@@ -290,7 +295,7 @@ class Process:
 	])))
 
 	@classmethod
-	def Find(self, command, compare=(lambda a, b: a == b)):
+	def Find(cls, command, compare=(lambda a, b: a == b)):
 		# FIXME: Probably better to direcly use List()
 		# The output looks like this
 		# 1000      2446     1 12 84048 82572   0 14:02 ?        00:04:08 python /usr/lib/exaile/exaile.py --datadir=/usr/share/exaile/data --startgui
@@ -303,7 +308,7 @@ class Process:
 		# 1000     29393     1  0  6307 17108   1 Feb26 ?        00:00:25 /usr/bin/python /usr/lib/telepathy/telepathy-butterfly'
 		# Note: we skip the header and the trailing EOL
 		for line in popen("ps -AF").split("\n")[1:-1]:
-			match = self.RE_PS_OUTPUT.match(line)
+			match = cls.RE_PS_OUTPUT.match(line)
 			if match:
 				pid = match.group(1)
 				ppid = match.group(2)
@@ -315,7 +320,7 @@ class Process:
 		return None
 
 	@classmethod
-	def List(self):
+	def List(cls):
 		"""Returns a map of pid to cmdline"""
 		res = {}
 		for p in glob.glob("/proc/*/cmdline"):
@@ -325,18 +330,18 @@ class Process:
 		return res
 
 	@classmethod
-	def GetWith(self, expression, compare=(lambda a, b: fnmatch.fnmatch(a, b))):
+	def GetWith(cls, expression, compare=(lambda a, b: fnmatch.fnmatch(a, b))):
 		"""Returns a list of all processes that contain the expression
 		in their command line."""
 		res = []
 		expression = "*" + expression + "*"
-		for pid, cmdline in self.List().items():
+		for pid, cmdline in cls.List().items():
 			if compare(cmdline, expression):
 				res.append(pid)
 		return res
 
 	@classmethod
-	def Status(self, pid):
+	def Status(cls, pid):
 		res = {}
 		pid = int(pid)
 		for line in cat("/proc/%d/status" % (pid)).split("\n"):
@@ -347,27 +352,27 @@ class Process:
 		return res
 
 	@classmethod
-	def Start(self, command, cwd=None):
+	def Start(cls, command, cwd=None):
 		# FIXME: Not sure if we need something like & at the end
 		command += ""
 		Logger.Info("Starting process: " + repr(command))
 		popen(command, cwd)
 
 	@classmethod
-	def Kill(self, pid):
+	def Kill(cls, pid):
 		Logger.Info("Killing process: " + repr(pid))
 		popen("kill -9 %s" % (pid))
 
 	@classmethod
-	def Info(self, pid):
+	def Info(cls, pid):
 		status = Process.Status(pid)
 		proc_pid = "/proc/%d" % (pid)
 		if not os.path.exists(proc_pid):
 			dict(
 				pid=pid,
 				exists=False,
-				probeStart=self.firstProbe,
-				probeEnd=self.lastProbe
+				probeStart=cls.firstProbe,
+				probeEnd=cls.lastProbe
 			)
 		else:
 			status = Process.Status(pid)
@@ -399,7 +404,7 @@ class System:
 	LAST_CPU_STAT = None
 
 	@classmethod
-	def MemoryInfo(self):
+	def MemoryInfo(cls):
 		"""Returns the content of /proc/meminfo as a dictionary 'key' -> 'value'
 		where value is in kB"""
 		res = {}
@@ -410,14 +415,14 @@ class System:
 		return res
 
 	@classmethod
-	def MemoryUsage(self):
+	def MemoryUsage(cls):
 		"""Returns the memory usage (between 0.0 and 1.0) on this system, which
 		is total memory - free memory - cached memory."""
-		meminfo = self.MemoryInfo()
+		meminfo = cls.MemoryInfo()
 		return (meminfo["MemTotal"] - meminfo["MemFree"] - meminfo["Cached"]) / float(meminfo["MemTotal"])
 
 	@classmethod
-	def DiskUsage(self):
+	def DiskUsage(cls):
 		"""Returns a dictionary 'device' -> 'percentage' representing the
 		usage of each device. A percentage of 1.0 means completely used,
 		0.0 means unused."""
@@ -442,19 +447,19 @@ class System:
 		return res
 
 	@classmethod
-	def CPUStats(self):
+	def CPUStats(cls):
 		"""Returns  CPU stats, that can be used to get the CPUUsage"""
 		# From <http://ubuntuforums.org/showthread.php?t=148781>
 		time_list = cat("/proc/stat").split("\n")[0].split(" ")[2:6]
 		res = map(int, time_list)
-		self.LAST_CPU_STAT = res
+		cls.LAST_CPU_STAT = res
 		return res
 
 	@classmethod
-	def CPUUsage(self, cpuStat=None):
+	def CPUUsage(cls, cpuStat=None):
 		if not cpuStat:
-			cpuStat = self.LAST_CPU_STAT
-		stat_now = self.CPUStats()
+			cpuStat = cls.LAST_CPU_STAT
+		stat_now = cls.CPUStats()
 		res = []
 		for i in range(len(cpuStat)):
 			res.append(stat_now[i] - cpuStat[i])
@@ -465,7 +470,7 @@ class System:
 		return usage
 
 	@classmethod
-	def GetInterfaceStats(self):
+	def GetInterfaceStats(cls):
 		# $/proc/net$ sudo cat dev
 		# Inter-|   Receive                                                |  Transmit
 		#  face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
@@ -511,55 +516,54 @@ class Size:
 	"""Converts the given value in the given units to bytes"""
 
 	@classmethod
-	def MB(self, v):
-		return self.kB(v * 1024)
+	def MB(cls, v):
+		return cls.kB(v * 1024)
 
 	@classmethod
-	def kB(self, v):
-		return self.B(v * 1024)
+	def kB(cls, v):
+		return cls.B(v * 1024)
 
 	@classmethod
-	def B(self, v):
+	def B(cls, v):
 		return v
-
 
 class Time:
 	"""Converts the given time in the given units to milliseconds"""
 
 	@classmethod
-	def w(self, t):
-		return self.d(7 * t)
+	def w(cls, t):
+		return cls.d(7 * t)
 
 	@classmethod
-	def d(self, t):
-		return self.h(24 * t)
+	def d(cls, t):
+		return cls.h(24 * t)
 
 	@classmethod
-	def h(self, t):
-		return self.m(60 * t)
+	def h(cls, t):
+		return cls.m(60 * t)
 
 	@classmethod
-	def m(self, t):
-		return self.s(60 * t)
+	def m(cls, t):
+		return cls.s(60 * t)
 
 	@classmethod
-	def s(self, t):
-		return self.ms(t * 1000)
+	def s(cls, t):
+		return cls.ms(t * 1000)
 
 	@classmethod
-	def ms(self, t):
+	def ms(cls, t):
 		return t
-
 
 # -----------------------------------------------------------------------------
 #
 # RESULTS ENCAPSULATION
 #
 # -----------------------------------------------------------------------------
+
 class Result:
+
 	def __init__(self):
 		pass
-
 
 class Success(Result):
 	"""Represents the success of a Rule."""
@@ -598,6 +602,7 @@ class Failure(Result):
 # ACTIONS
 #
 # -----------------------------------------------------------------------------
+
 class Action:
 	"""Represents actions that can be triggered on rule sucess or failure."""
 
@@ -679,6 +684,7 @@ class LogDaemonwatchStatus(Log):
 class Run(Action):
 
 	def __init__(self, command, cwd=None, detach=False):
+		Action.__init__(self)
 		self.command = command
 		self.cwd = cwd
 		self.detach = detach
@@ -699,6 +705,7 @@ class Restart(Action):
 	start/stop scripts if the process is long-running."""
 
 	def __init__(self, command, cwd=None):
+		Action.__init__(self)
 		self.command = command
 		self.cwd = cwd
 
@@ -730,6 +737,7 @@ class Email(Action):
 	""".replace("\t|", "")
 
 	def __init__(self, recipient, subject, message, host, user=None, password=None, origin=None):
+		Action.__init__(self)
 		self.recipient = recipient
 		self.subject = subject
 		self.message = message
@@ -773,8 +781,12 @@ class XMPP(Action):
 	"""Sends an XMPP message"""
 
 	def __init__(self, recipient, message, user=None, password=None):
+		Action.__init__(self)
 		# FIXME: Add import error, suggest to easy_install pyxmpp
-		import xmpp
+		try:
+			import xmpp
+		except ImportError, e:
+			raise Exception("Package `pyxmpp` is required: easy_install pyxmpp")
 		self.xmpp = xmpp
 		self.recipient = recipient
 		self.message = message
@@ -818,6 +830,7 @@ class Incident(Action):
 	lapse T (in ms, 30,000 by default)."""
 
 	def __init__(self, actions, errors=5, during=30 * 1000):
+		Action.__init__(self)
 		if not (type(actions) in (tuple, list)):
 			actions = tuple([actions])
 		self.actions = actions
@@ -848,19 +861,19 @@ class ZMQPublish(Action):
 	ZMQ_SOCKETS = {}
 
 	@classmethod
-	def getZMQContext(self):
+	def getZMQContext(cls):
 		import zmq
-		if self.ZMQ_CONTEXT is None:
-			self.ZMQ_CONTEXT = zmq.Context()
-		return self.ZMQ_CONTEXT
+		if cls.ZMQ_CONTEXT is None:
+			cls.ZMQ_CONTEXT = zmq.Context()
+		return cls.ZMQ_CONTEXT
 
 	@classmethod
-	def getZMQSocket(self, url):
-		if url not in self.ZMQ_SOCKETS.keys():
+	def getZMQSocket(cls, url):
+		if url not in cls.ZMQ_SOCKETS.keys():
 			import zmq
-			self.ZMQ_SOCKETS[url] = self.getZMQContext().socket(zmq.PUB)
-			self.ZMQ_SOCKETS[url].bind(url)
-		return self.ZMQ_SOCKETS[url]
+			cls.ZMQ_SOCKETS[url] = cls.getZMQContext().socket(zmq.PUB)
+			cls.ZMQ_SOCKETS[url].bind(url)
+		return cls.ZMQ_SOCKETS[url]
 
 	def __init__(self, variableName, host="0.0.0.0", port=9009, extract=lambda r, _: r):
 		Action.__init__(self)
@@ -1211,7 +1224,7 @@ class Runner:
 	POOL = Pool(100)
 
 	@classmethod
-	def Create(self, runnable, context=None, iteration=None):
+	def Create(cls, runnable, context=None, iteration=None):
 		if Runner.POOL.canAdd():
 			runner = Runner(runnable, context, iteration, Runner.POOL)
 			Runner.POOL.add(runner)

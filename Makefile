@@ -104,6 +104,11 @@ prepare:
 		  $(PYTHONHOME)/$(PACKAGE)
 	@echo "Preparing done."
 
+release: $(PRODUCT)
+	git tag $(VERSION) ; true
+	git push --tags ; true
+	python setup.py clean sdist register upload
+
 clean:
 	@echo "Cleaning $(PROJECT)."
 	@find . -name "*.pyc" -or -name "*.sw?" -or -name ".DS_Store" -or -name "*.bak" -or -name "*~" -exec rm '{}' ';'
@@ -112,14 +117,13 @@ clean:
 check:
 	@echo "Checking $(PROJECT) sources :"
 ifeq ($(shell basename spam/$(PYCHECKER)),pychecker)
-	@$(PYCHECKER) -b $(CHECK_BLACKLIST) $(SOURCE_FILES)
+	@$(PYCHECKER) --limit 100 -b $(CHECK_BLACKLIST) $(SOURCE_FILES)
 	@echo "Checking $(PROJECT) tests :"
-	@$(PYCHECKER) -b $(CHECK_BLACKLIST) $(TEST_FILES)
+	@$(PYCHECKER) --limit 100 -b $(CHECK_BLACKLIST) $(TEST_FILES)
 else
 	@echo "You need Pychecker to check $(PROJECT)."
 	@echo "See <http://pychecker.sf.net>"
 endif
-
 	@echo "done."
 
 test: $(SOURCE_FILES) $(TEST_FILES)
