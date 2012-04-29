@@ -5,7 +5,7 @@ from distutils.core import setup
 import os, sys
 VERSION = eval(filter(lambda _:_.startswith("__version__"), file("Sources/daemonwatch.py").readlines())[0].split("=")[1])
 setup(
-	name             = "daemonwatch"",
+	name             = "daemonwatch",
 	version          = VERSION,
 	description      = "Server monitoring and data-collection daemon",
 	author           = "Sébastien Pierre",
