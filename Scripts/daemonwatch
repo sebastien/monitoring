@@ -1,3 +1,0 @@
-#!/usr/bin/python
-import sys, daemonwatch
-daemonwatch.command(sys.argv[1:])

@@ -1,4 +1,4 @@
-from daemonwatch import *
+from watchdog import *
 __doc__ = """How to ensure that a given (HTTP) service stays up and running."""
 Monitor(
 	Service(
@@ -18,7 +18,7 @@ Monitor(
 							# We kill the 'myservice-start.py' script if it exists
 							# and (re)start it, so that the 'http://localhost:8000' will
 							# become available
-							# NOTE: Restart will make the process a child of the daemonwatch, so
+							# NOTE: Restart will make the process a child of the watchdog, so
 							# you might prefer to use something like upstart
 							Restart("myservice-start.py")
 						]

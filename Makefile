@@ -1,4 +1,4 @@
-# Daemonwatch makefile
+# Watchdog makefile
 # --------------------
 #
 # Revision 1.5.1 (24-Mar-2006)
@@ -24,7 +24,7 @@
 # Project variables___________________________________________________________
 #
 # Project name. Do not put spaces.
-PROJECT         = daemonwatch
+PROJECT         = watchdog
 PROJECT_VERSION = $(shell grep __version__ Sources/*.py | cut -d'"' -f2)
 
 DOCUMENTATION   = Documentation
@@ -38,10 +38,10 @@ DISTROCONTENT   = $(DOCUMENTATION) $(SOURCES) $(TESTS) $(RESOURCES) \
 
 # Project files_______________________________________________________________
 
-PACKAGE = daemonwatch
+PACKAGE = watchdog
 MAIN    = 
 MODULES = \
-	daemonwatch \
+	watchdog \
 
 TEST_MAIN       = $(TESTS)/$(PROJECT)Test.py
 SOURCE_FILES    = $(shell find $(SOURCES) -name "*.py")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -----------------------------------------------------------------------------
-# Project           :   Daemonwatch
+# Project           :   Watchdog
 # -----------------------------------------------------------------------------
 # Author            :   Sebastien Pierre                  <sebastien@ffctn.com>
 # License           :   Revised BSD Licensed
@@ -27,9 +27,9 @@ import httplib, socket, threading, subprocess, glob
 
 #  File "sample-reporter.py", line 35, in <module>
 #    fail    = [SendStat(ADKIT_STATSERVICE, "mediaserver.ms-1.failure")]
-#  File "/home/sebastien/Projects/Local/lib/python/daemonwatch.py", line 669, in run
+#  File "/home/sebastien/Projects/Local/lib/python/watchdog.py", line 669, in run
 #    Runner(rule,context=service,iteration=self.iteration).onRunEnded(self.onRuleEnded).run()
-#  File "/home/sebastien/Projects/Local/lib/python/daemonwatch.py", line 620, in run
+#  File "/home/sebastien/Projects/Local/lib/python/watchdog.py", line 620, in run
 #    self._thread.start()
 #  File "/usr/lib/python2.6/threading.py", line 474, in start
 #    _start_new_thread(self.__bootstrap, ())
@@ -191,7 +191,7 @@ class Signals:
 					signal.signal(getattr(signal, sig), self._shutdown)
 					self.signalsRegistered.append(sig)
 				except Exception, e:
-					Logger.Err("[!] daemonwatch.Signals._registerSignals:%s %s\n" % (sig, e))
+					Logger.Err("[!] watchdog.Signals._registerSignals:%s %s\n" % (sig, e))
 
 	def _shutdown(self, *args):
 		"""Safely executes the callbacks registered in self.onShutdown."""
@@ -673,7 +673,7 @@ class LogResult(Log):
 		return "%s %s %s" % (self.preamble(monitor, service, rule, runner), self.message, self.extractor(runner.result.value, runner))
 
 
-class LogDaemonwatchStatus(Log):
+class LogWatchdogStatus(Log):
 
 	def __init__(self, path=None, stdout=True, overwrite=False):
 		Log.__init__(self, path, stdout, overwrite)
@@ -701,7 +701,7 @@ class Run(Action):
 class Restart(Action):
 	"""Restarts the process with the given command, killing the process if it
 	already exists, starting it if it doesn't. Use this one with care as the
-	process will become a child of the daemonwatch -- it's better to use
+	process will become a child of the watchdog -- it's better to use
 	start/stop scripts if the process is long-running."""
 
 	def __init__(self, command, cwd=None):
@@ -754,7 +754,7 @@ class Email(Action):
 
 	def send(self, monitor=None, service=None, rule=None, runner=None):
 		server = smtplib.SMTP(self.host)
-		origin = self.origin or "<Daemonwatch for %s> daemonwatch@%s" % (service and service.name, popen("hostname")[:-1])
+		origin = self.origin or "<Watchdog for %s> watchdog@%s" % (service and service.name, popen("hostname")[:-1])
 		message = string.Template(self.MESSAGE).safe_substitute({
 			"from": origin,
 			"to": self.recipient,
@@ -903,7 +903,7 @@ class ZMQPublish(Action):
 class Rule:
 	"""Rules return either a Sucess or Failure when run, and take actions
 	as 'fail' or 'success' arguments, which will be triggered by the
-	daemonwatch service."""
+	watchdog service."""
 
 	COUNT = 0
 
@@ -1191,7 +1191,7 @@ class Service:
 # -----------------------------------------------------------------------------
 # FIXME: Nos sure if pools are really necessary, they're not used so far
 class Pool:
-	"""Pools are used in Daemonwatch to limit the number of runners/rules executed
+	"""Pools are used in Watchdog to limit the number of runners/rules executed
 	at once. Pools have a maximum capacity, so that you can limit the numbers
 	of elements you create."""
 
@@ -1289,7 +1289,7 @@ class Runner:
 #
 # -----------------------------------------------------------------------------
 class Monitor:
-	"""The monitor is at the core of the daemonwatch. Rules declared in registered
+	"""The monitor is at the core of the watchdog. Rules declared in registered
 	services are run, and actions are executed according to the result."""
 
 	FREQUENCY = Time.s(5)
@@ -1298,7 +1298,7 @@ class Monitor:
 		self.services = []
 		self.isRunning = False
 		self.freq = self.FREQUENCY
-		self.logger = Logger(prefix="daemonwatch ")
+		self.logger = Logger(prefix="watchdog ")
 		self.iteration = 0
 		self.iterationLastDuration = 0
 		self.runners = {}
@@ -1410,7 +1410,7 @@ System.CPUStats()
 
 def command(args):
 	if len(args) != 1:
-		print "Usage: daemonwatch FILE"
+		print "Usage: watchdog FILE"
 	else:
 		with file(args[0],"r") as f:
 			exec f.read() 

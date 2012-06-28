@@ -1,10 +1,10 @@
 #!/usr/bin/env python
-from daemonwatch import *
+from watchdog import *
 import json
 config = json.loads(file("jabber.passwd").read())
 action = XMPP(
 	"sebastien@ffctn.com",
-	"Daemonwatch: testing iteration #${iteration}@${timestamp}=${result}",
+	"Watchdog: testing iteration #${iteration}@${timestamp}=${result}",
 	config["user"], config["password"]
 )
 Monitor(

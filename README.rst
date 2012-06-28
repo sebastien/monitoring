@@ -1,4 +1,4 @@
-Daemonwatch - Server monitoring and data-collection daemon
+Watchdog - Server monitoring and data-collection daemon
 ==========================================================
 
 We want...
@@ -38,11 +38,11 @@ python setup.py install
 or
 
 ```
-easy_install daemonwatch
+easy_install watchdog
 ```
 
 More?
 -----
 
-Read the `presentation on Daemonwatch <http://ur1.ca/45ku5>`_ (previously named
+Read the `presentation on Watchdog <http://ur1.ca/45ku5>`_ (previously named
 Watchdog).
