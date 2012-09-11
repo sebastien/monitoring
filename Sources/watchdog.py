@@ -574,6 +574,12 @@ class Success(Result):
 		self.value = value
 		self.duration = None
 
+	def isSuccess( self ):
+		return True
+
+	def isFailure( self ):
+		return False
+
 	def __str__(self):
 		return str(self.value)
 
@@ -589,6 +595,12 @@ class Failure(Result):
 		self.message = message
 		self.value = value
 		self.duration = None
+
+	def isSuccess( self ):
+		return False
+
+	def isFailure( self ):
+		return True
 
 	def __str__(self):
 		return str(self.message)
@@ -990,7 +1002,7 @@ class HTTP(Rule):
 class SystemHealth(Rule):
 	"""Defines thresholds for key system health stats."""
 
-	def __init__(self, freq, cpu=0.90, disk=0.90, mem=0.90, fail=(), success=()):
+	def __init__(self, freq=Time.s(1), cpu=0.90, disk=0.90, mem=0.90, fail=(), success=()):
 		"""Monitors the system health with the following thresholds:
 
 		- 'cpu'  (0.90 by default)
@@ -1012,22 +1024,30 @@ class SystemHealth(Rule):
 		- ['disk', <actual value:float>, <threshold value:float>, <mount point:string>]
 
 		"""
-		errors = []
-		cpu = System.CPUUsage()
-		mem = System.MemoryUsage()
+		errors = {}
+		values  = {}
+		cpu  = System.CPUUsage()
+		mem  = System.MemoryUsage()
 		disk = System.DiskUsage()
 		if cpu > self.cpu:
-			errors.append(("cpu", cpu, self.cpu))
+			errors["cpu"] = (cpu, self.cpu)
+		else:
+			values["cpu"] = (cpu, self.cpu)
 		if mem > self.mem:
-			errors.append(("mem", mem, self.mem))
+			errors["cpu"] = (mem, self.mem)
+		else:
+			values["mem"] = (mem, self.mem)
 		for mount, usage in disk.items():
 			if usage > self.disk:
-				errors.append(("disk", usage, self.disk))
+				errors.setdefault("disk", {})
+				errors["disk"][mount] = (usage, self.disk)
+			else:
+				values.setdefault("disk", {})
+				values["disk"][mount] = (usage, self,disk)
 		if errors:
-			return Failure(errors)
+			return Failure("errors with %s" % (", ".join(errors.keys())), value=dict(values=values, errors=errors))
 		else:
-			return Success()
-
+			return Success(value=dict(values=values))
 
 class ProcessInfo(Rule):
 	"""Returns statistics about the process with the given command, the rule
