@@ -1452,24 +1452,24 @@ class Monitor:
 		try:
 			return self._createRunner( rule, service, iteration, self.onRuleEnded )
 		except RunnerStillRunning, e:
-			if self.iteration - runner.iteration < 5:
+			if self.iteration - e.runner.iteration < 5:
 				self.logger.err("Previous iteration's rule is still running: %s, you should increase its frequency." % (rule))
 			else:
-				self.logger.err("Previous iteration's rule %s seems to be still stuck after %s iteration." % (rule, runner.iteration - self.iteration))
+				self.logger.err("Previous iteration's rule %s seems to be still stuck after %s iteration." % (rule, e.runner.iteration - self.iteration))
 			return None
 		except RunnerThreadPoolFull, e:
 			self.logger.err("Cannot create runner for rule: %s (thread pool reached full capacity)" % (rule))
 			return None
 
 	def getRunnerForAction( self, rule, action, service, iteration ):
-		runner_id = "%s:%s" % (id(rule), id(action))
+		runner_id = "%s:%s" % (str(rule), str(action))
 		try:
 			return self._createRunner( action, service, iteration, self.onActionEnded, runner_id )
 		except RunnerStillRunning, e:
-			if self.iteration - runner.iteration < 5:
+			if self.iteration - e.runner.iteration < 5:
 				self.logger.err("Previous iteration's action is still running: %s.%s, you should increase its frequency." % (rule, str(action)))
 			else:
-				self.logger.err("Previous iteration's action %s.%s seems to be still stuck after %s iteration." % (rule, str(action), runner.iteration - self.iteration))
+				self.logger.err("Previous iteration's action %s.%s seems to be still stuck after %s iteration." % (rule, str(action), e.runner.iteration - self.iteration))
 			return None
 		except RunnerThreadPoolFull, e:
 			self.logger.err("Cannot create runner for action: %s.%s (thread pool reached full capacity)" % (rule, str(action)))
@@ -1488,8 +1488,6 @@ class Monitor:
 					action_runner = self.getRunnerForAction(rule, action_object, service, self.iteration)
 					if action_runner:
 						action_runner.run(self, service, rule, runner)
-					else:
-						self.logger.err("Cannot create success action runner for: %s" % (action_object))
 		elif isinstance(runner.result, Failure):
 			self.logger.err("Failure on ", rule, ":", runner.result)
 			if rule.fail:
@@ -1499,8 +1497,6 @@ class Monitor:
 					action_runner = self.getRunnerForAction(rule, action_object, service, self.iteration)
 					if action_runner:
 						action_runner.run(self, service, rule, runner)
-					else:
-						self.logger.err("Cannot create failure action runner for: %s" % (action_object))
 			else:
 				#self.logger.info("No failure action to trigger")
 				pass
@@ -1519,11 +1515,9 @@ class Monitor:
 		or `RunnerThreadPoolFull` in case of problems."""
 		# FIXME: we should prefix the ID with the Rule name, if any
 		if runableId is None:
-			runable_id = id(runable)
+			runable_id = str(runable)
 		else:
 			runable_id = runableId
-		if hasattr(runable, "describe"): description = runable.descibe()
-		else: description = str(runable)
 		if runable_id in self.runners:
 			runner = self.runners[runable_id]
 			raise RunnerStillRunning(runner)
