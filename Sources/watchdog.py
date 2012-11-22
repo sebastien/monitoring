@@ -6,7 +6,7 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   10-Feb-2010
-# Last mod.         :   13-Sep-2012
+# Last mod.         :   22-Nov-2012
 # -----------------------------------------------------------------------------
 
 import re, sys, os, time, datetime, stat, smtplib, string, json, fnmatch
@@ -35,7 +35,7 @@ import httplib, socket, threading, subprocess, glob, traceback
 #    _start_new_thread(self.__bootstrap, ())
 #thread.error: can't start new thread
 
-__version__ = "0.9.4"
+__version__ = "0.9.5"
 
 RE_SPACES  = re.compile("\s+")
 RE_INTEGER = re.compile("\d+")
@@ -52,7 +52,6 @@ def cat(path):
 		d = None
 	return d
 
-
 def count(path):
 	"""Count the number of files and directories at the given path"""
 	try:
@@ -61,11 +60,9 @@ def count(path):
 		# We most probably hit a permission denied here
 		return -1
 
-
 def now():
 	"""Returns the current time in milliseconds"""
 	return time.time() * 1000
-
 
 def spawn(cmd, cwd=None):
 	"""Spawn a completely detached subprocess (i.e., a daemon).
@@ -415,7 +412,7 @@ class Process:
 
 # -----------------------------------------------------------------------------
 #
-# PROCESS INFORMATION
+# SYSTEM
 #
 # -----------------------------------------------------------------------------
 
@@ -527,6 +524,62 @@ class System:
 			}
 		return res
 
+# -----------------------------------------------------------------------------
+#
+# TMUX
+#
+# -----------------------------------------------------------------------------
+
+class Tmux:
+	"""A simple wrapper around the `tmux`  terminal multiplexer that allows to
+	create sessions and windows and execute arbitrary code in it.
+	
+	This is particularly useful if you want to run command on remote servers
+	but still want easy access to their detailed output/interact with them."""
+
+	@classmethod
+	def Run( self, params ):
+		cmd = "tmux " + params
+		res = popen(cmd)
+		if isinstance(res, tuple):
+			raise Exception("Failed running command: {0}, exception: {1}".format(cmd, res))
+		else:
+			return res
+
+	@classmethod
+	def ListSessions( self ):
+		return map(lambda _:_.split(":",1)[0].strip(), self.Run("list-session").split("\n"))
+	
+	@classmethod
+	def EnsureSession( self, session ):
+		if session not in self.ListSessions():
+			self.Run("new-session -d -s " + session)
+		return self
+
+	@classmethod
+	def ListWindows( self, session ):
+		windows = filter(lambda _:_, self.Run("list-windows -t" + session).split("\n"))
+		return map(lambda _:_.split(":",1)[1].split("[",1)[0].strip(), windows)
+
+	@classmethod
+	def EnsureWindow( self, session, name ):
+		windows = self.ListWindows(session)
+		if name not in windows:
+			self.Run("new-window -t {0}:{1} -n {2}".format(session, len(windows), name))
+		return self
+
+	@classmethod
+	def KillWindow( self, session, name ):
+		if name in self.ListWindows(session):
+			self.Run("kill-window -t {0}:{1}".format(session, name))
+
+	@classmethod
+	def Read( self, session, name ):
+		return self.Run("capture-pane -t {0}:{1} \\; save-buffer -".format(session, name))
+
+	@classmethod
+	def Write( self, session, name, commands):
+		self.Run("send-keys -t {0}:{1} {2} C-m".format(session, name, repr(commands)))
 
 # -----------------------------------------------------------------------------
 #
@@ -751,6 +804,43 @@ class Run(Action):
 		else:
 			Logger.Output("Run:", self.command, ":", res)
 			return True
+
+class TmuxRun(Action):
+	"""An action that executes the given command in a tmux window with
+	the given name and session."""
+
+	def __init__( self, session, window, command, cwd="." ):
+		Action.__init__(self)
+		self.session = session
+		self.window  = window
+		self.command = command
+		self.cwd     = "."
+		self.tmux    = Tmux
+	
+	def run(self, monitor, service, rule, runner):
+		print "Ensuring Window", self.session, self.window
+		self.tmux.EnsureSession(self.session)
+		self.tmux.EnsureWindow (self.session, self.window)
+		# Is the terminal responsive?
+		key = "TMUX_ACTION_CHECK_{0}".format(time.time())
+		self.tmux.Write(self.session, self.window, "echo " + key)
+		# We check if the terminal is responsive. If not we let it 1s to 
+		# process the command before killing the window
+		is_responsive = False
+		for i in range(10):
+			text = self.tmux.Read(self.session, self.window)
+			is_responsive = text.find(key) != -1
+			if not is_responsive:
+				time.sleep(0.1)
+			else:
+				break
+		# If the terminal is not responsive, we simply kill then window
+		# and restart it
+		if not is_responsive:
+			self.tmux.KillWindow(self.session, self.window)
+			self.tmux.EnsureWindow(self.session, self.window)
+		# We're now safe to start the command
+		self.tmux.Write(self.session, self.window, "cd {0} ; {1}".format(self.cwd, self.command))
 
 class Restart(Action):
 	"""Restarts the process with the given command, killing the process if it
