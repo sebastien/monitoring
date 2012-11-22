@@ -818,7 +818,6 @@ class TmuxRun(Action):
 		self.tmux    = Tmux
 	
 	def run(self, monitor, service, rule, runner):
-		print "Ensuring Window", self.session, self.window
 		self.tmux.EnsureSession(self.session)
 		self.tmux.EnsureWindow (self.session, self.window)
 		# Is the terminal responsive?
