@@ -898,7 +898,6 @@ class Email(Action):
 			Logger.Info("Email sent to %s (#%s)" % (self.recipient, monitor.iteration))
 		else:
 			Logger.Err("Could not send email to %s (#%s)" % (self.recipient, monitor.iteration))
-
 	def send(self, monitor=None, service=None, rule=None, runner=None):
 		server = smtplib.SMTP(self.host)
 		origin = self.origin or "<Monitoring for %s> monitoring@%s" % (service and service.name, popen("hostname")[:-1])
@@ -916,7 +915,7 @@ class Email(Action):
 		server.ehlo()
 		if self.password:
 			server.login(self.user, self.password)
-		server.sendmail(origin, [self.user], message)
+		server.sendmail(origin, self.recipient, message)
 		try:
 			server.quit()
 		except:
