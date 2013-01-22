@@ -542,7 +542,11 @@ class Tmux:
 		cmd = "tmux " + params
 		res = popen(cmd)
 		if isinstance(res, tuple):
-			raise Exception("Failed running command: {0}, exception: {1}".format(cmd, res))
+			if res[1].find("failed to connect to server:") != -1:
+				# there's not tmux session running so we just return nothing
+				return ""
+			else:
+				raise Exception("Failed running command: {0}, exception: {1}".format(cmd, res))
 		else:
 			return res
 
@@ -814,7 +818,7 @@ class TmuxRun(Action):
 		self.session = session
 		self.window  = window
 		self.command = command
-		self.cwd     = "."
+		self.cwd     = cwd
 		self.tmux    = Tmux
 	
 	def run(self, monitor, service, rule, runner):
