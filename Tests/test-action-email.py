@@ -1,10 +1,10 @@
 #!/usr/bin/env python
-from watchdog import *
+from monitoring import *
 import json
 config = json.loads(file("email.passwd").read())
 action = Email(
 	"sebastien@ffctn.com",
-	"[Watchdog] Test", "Sample message", 
+	"[Monitoring] Test", "Sample message", 
 	config["smtp"],config["user"],config["password"]
 )
 Monitor(

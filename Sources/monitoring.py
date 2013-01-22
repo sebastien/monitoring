@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -----------------------------------------------------------------------------
-# Project           :   Watchdog
+# Project           :   Monitoring
 # -----------------------------------------------------------------------------
 # Author            :   Sebastien Pierre                  <sebastien@ffctn.com>
 # License           :   Revised BSD Licensed
@@ -27,9 +27,9 @@ import httplib, socket, threading, subprocess, glob, traceback
 
 #  File "sample-reporter.py", line 35, in <module>
 #    fail    = [SendStat(ADKIT_STATSERVICE, "mediaserver.ms-1.failure")]
-#  File "/home/sebastien/Projects/Local/lib/python/watchdog.py", line 669, in run
+#  File "/home/sebastien/Projects/Local/lib/python/monitoring.py", line 669, in run
 #    Runner(rule,context=service,iteration=self.iteration).onRunEnded(self.onRuleEnded).run()
-#  File "/home/sebastien/Projects/Local/lib/python/watchdog.py", line 620, in run
+#  File "/home/sebastien/Projects/Local/lib/python/monitoring.py", line 620, in run
 #    self._thread.start()
 #  File "/usr/lib/python2.6/threading.py", line 474, in start
 #    _start_new_thread(self.__bootstrap, ())
@@ -188,7 +188,7 @@ class Signals:
 					signal.signal(getattr(signal, sig), self._shutdown)
 					self.signalsRegistered.append(sig)
 				except Exception, e:
-					Logger.Err("[!] watchdog.Signals._registerSignals:%s %s\n" % (sig, e))
+					Logger.Err("[!] monitoring.Signals._registerSignals:%s %s\n" % (sig, e))
 
 	def _shutdown(self, *args):
 		"""Safely executes the callbacks registered in self.onShutdown."""
@@ -784,7 +784,7 @@ class LogResult(Log):
 		return "%s %s %s" % (self.preamble(monitor, service, rule, runner), self.message, self.extractor(runner.result.value, runner))
 
 
-class LogWatchdogStatus(Log):
+class LogMonitoringStatus(Log):
 
 	def __init__(self, path=None, stdout=True, overwrite=False):
 		Log.__init__(self, path, stdout, overwrite)
@@ -848,7 +848,7 @@ class TmuxRun(Action):
 class Restart(Action):
 	"""Restarts the process with the given command, killing the process if it
 	already exists, starting it if it doesn't. Use this one with care as the
-	process will become a child of the watchdog -- it's better to use
+	process will become a child of the monitoring -- it's better to use
 	start/stop scripts if the process is long-running."""
 
 	def __init__(self, command, cwd=None):
@@ -901,7 +901,7 @@ class Email(Action):
 
 	def send(self, monitor=None, service=None, rule=None, runner=None):
 		server = smtplib.SMTP(self.host)
-		origin = self.origin or "<Watchdog for %s> watchdog@%s" % (service and service.name, popen("hostname")[:-1])
+		origin = self.origin or "<Monitoring for %s> monitoring@%s" % (service and service.name, popen("hostname")[:-1])
 		message = string.Template(self.MESSAGE).safe_substitute({
 			"from": origin,
 			"to": self.recipient,
@@ -1051,7 +1051,7 @@ class ZMQPublish(Action):
 class Rule:
 	"""Rules return either a Sucess or Failure when run, and take actions
 	as 'fail' or 'success' arguments, which will be triggered by the
-	watchdog service."""
+	monitoring service."""
 
 	COUNT = 0
 
@@ -1344,7 +1344,7 @@ class Service:
 # -----------------------------------------------------------------------------
 
 class Pool:
-	"""Pools are used in Watchdog to limit the number of runners/rules executed
+	"""Pools are used in Monitoring to limit the number of runners/rules executed
 	at once. Pools have a maximum capacity, so that you can limit the numbers
 	of elements you create."""
 
@@ -1422,7 +1422,7 @@ class Runner:
 		self.id           = id
 		self._thread      = threading.Thread(target=self._run)
 		# We want the threads to be "daemonic", ie. they will all stop once
-		# the main watchdog stops.
+		# the main monitoring stops.
 		# SEE: http://docs.python.org/release/2.5.2/lib/thread-objects.html
 		self._thread.setDaemon(True)
 
@@ -1474,7 +1474,7 @@ class Runner:
 # -----------------------------------------------------------------------------
 
 class Monitor:
-	"""The monitor is at the core of the Watchdog. Rules declared in registered
+	"""The monitor is at the core of the Monitoring. Rules declared in registered
 	services are run, and actions are executed according to the result."""
 
 	FREQUENCY = Time.s(5)
@@ -1484,7 +1484,7 @@ class Monitor:
 		self.services              = []
 		self.isRunning             = False
 		self.freq                  = self.FREQUENCY
-		self.logger                = Logger(prefix="watchdog ")
+		self.logger                = Logger(prefix="monitoring ")
 		self.iteration             = 0
 		self.iterationLastDuration = 0
 		self.runners               = {}
@@ -1639,7 +1639,7 @@ System.CPUStats()
 
 def command(args):
 	if len(args) != 1:
-		print "Usage: watchdog FILE"
+		print "Usage: monitoring FILE"
 	else:
 		with file(args[0],"r") as f:
 			exec f.read() 

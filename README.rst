@@ -1,8 +1,13 @@
-Watchdog - Server monitoring and data-collection daemon
+Monitoring - Server monitoring and data-collection daemon
 ==========================================================
 
-We want...
-----------
+Monitoring is an API with a DSL feel to write monitoring daemons
+in Python.
+
+Use cases
+---------
+
+Monitoring works well for the following tasks:
 
 * to be notified when incidents happen (email, XMPP, ZeroMQ...)
 * automatic actions to be taken (restart, rm, git pull...)
@@ -38,11 +43,11 @@ python setup.py install
 or
 
 ```
-easy_install watchdog
+easy_install monitoring
 ```
 
 More?
 -----
 
-Read the `presentation on Watchdog <http://ur1.ca/45ku5>`_ (previously named
+Read the `presentation on Monitoring <http://ur1.ca/45ku5>`_ (previously named
 Watchdog).

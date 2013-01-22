@@ -1,3 +1,0 @@
-#!/usr/bin/python
-import sys, watchdog
-watchdog.command(sys.argv[1:])

@@ -1,10 +1,10 @@
 #!/usr/bin/env python
-from   watchdog import *
+from   monitoring import *
 import time
 
 __doc__ = """
 In this test we create a LoopingAction (an action that will never end). We want
-to make sure that at the third iteration the watchdog won't be able to start
+to make sure that at the third iteration the monitoring won't be able to start
 the LoopingAction.
 """
 

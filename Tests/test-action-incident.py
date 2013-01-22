@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from watchdog import *
+from monitoring import *
 __doc__ = """
 Fail every second, and only triggers the log result after at least 5 failures over 10 seconds
 """

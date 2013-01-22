@@ -3,20 +3,21 @@
 # See: <http://docs.python.org/distutils/introduction.html>
 from distutils.core import setup
 import os, sys
-VERSION = eval(filter(lambda _:_.startswith("__version__"), file("Sources/watchdog.py").readlines())[0].split("=")[1])
+VERSION = eval(filter(lambda _:_.startswith("__version__"), file("Sources/monitoring.py").readlines())[0].split("=")[1])
 setup(
-	name             = "watchdog",
+	name             = "monitoring",
 	version          = VERSION,
 	description      = "Server monitoring and data-collection daemon",
 	author           = "Sébastien Pierre",
 	author_email     = "sebastien.pierre@gmail.com",
-	url              = "http://github.com/sebastien/watchdog",
-	download_url     = "https://github.com/sebastien/watchdog/tarball/%s" % (VERSION),
+	url              = "http://github.com/sebastien/monitoring",
+	download_url     = "https://github.com/sebastien/monitoring/tarball/%s" % (VERSION),
 	keywords         = ["daemon", "services", "monitoring", "administration"],
 	install_requires = [],
 	package_dir      = {"":"Sources"},
-	py_modules       = ["watchdog"],
-	scripts          = ["Scripts/watchdog"],
+	py_modules       = ["monitoring"],
+	scripts          = ["Scripts/monitoring"],
+    license          = "License :: OSI Approved :: BSD License",
 	classifiers      = [
 		"Programming Language :: Python",
 		"Development Status :: 3 - Alpha",

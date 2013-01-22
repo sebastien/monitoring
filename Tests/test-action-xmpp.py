@@ -1,10 +1,10 @@
 #!/usr/bin/env python
-from watchdog import *
+from monitoring import *
 import json
 config = json.loads(file("jabber.passwd").read())
 action = XMPP(
 	"sebastien@ffctn.com",
-	"Watchdog: testing iteration #${iteration}@${timestamp}=${result}",
+	"Monitoring: testing iteration #${iteration}@${timestamp}=${result}",
 	config["user"], config["password"]
 )
 Monitor(
