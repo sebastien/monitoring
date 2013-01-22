@@ -1,0 +1,28 @@
+Exception in thread Thread-138266:
+Traceback (most recent call last):
+ File "/usr/lib/python2.7/threading.py", line 552, in __bootstrap_inner
+   self.run()
+ File "/usr/lib/python2.7/threading.py", line 505, in run
+   self.__target(*self.__args, **self.__kwargs)
+ File "/opt/lib/python/monitoring.py", line 1198, in _run
+   self.result = self.runnable.run(*self.args)
+ File "/opt/lib/python/monitoring.py", line 974, in run
+   pid = Process.GetWith(self.command)
+ File "/opt/lib/python/monitoring.py", line 281, in GetWith
+   if compare(cmdline, expression):
+ File "/opt/lib/python/monitoring.py", line 275, in <lambda>
+   def GetWith(self, expression, compare=(lambda a, b: fnmatch.fnmatch(a, b))):
+ File "/usr/lib/python2.7/fnmatch.py", line 43, in fnmatch
+   return fnmatchcase(name, pat)
+ File "/usr/lib/python2.7/fnmatch.py", line 79, in fnmatchcase
+   return _cache[pat].match(name) is not None
+TypeError: expected string or buffer
+
+Traceback (most recent call last):
+ File "/opt/apps/ngsexplorers/monitoring.conf", line 42, in <module>
+   Run("echo '' > /tmp/monitoring-default.log","/tmp")
+ File "/opt/lib/python/monitoring.py", line 1274, in run
+   runner = self.runnerForRule(rule, service, self.iteration)
+ File "/opt/lib/python/monitoring.py", line 1244, in runnerForRule
+   if iteration - runner.iteration < 5:
+AttributeError: 'bool' object has no attribute 'iteration'

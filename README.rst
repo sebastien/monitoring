@@ -1,16 +1,53 @@
-Watchdog - Server monitoring and data-collection daemon
+Monitoring - Server monitoring and data-collection daemon
 ==========================================================
 
-Watchdog has been renamed to "Monitoring" as there was already a project
-with the same name on PyPI.
+Monitoring is an API with a DSL feel to write monitoring daemons
+in Python.
 
-You can checkout Monitoring's github repository here
+Use cases
+---------
 
-    http://github.com/sebastien/monitoring
+Monitoring works well for the following tasks:
 
-Or install it from PyPI
+* to be notified when incidents happen (email, XMPP, ZeroMQ...)
+* automatic actions to be taken (restart, rm, git pull...)
+* to collect system statistics for further processing e.g. graphs
+* tie into existing/third-party Python code
+* play along nicely with existing deployment/configuration ecosystem
+  (fabric/cuisine)
 
-    easy_install monitoring
+Overview
+--------
 
-The `presentation on Watchdog <http://ur1.ca/45ku5>`_  is still valid for
-Monitoring, except that the module is nom `monitoring`.
+* monitoring DSL: declarative programming to define monitoring
+  strategy
+* wide spectrum: from data collection and incident reporting to taking
+  automatic actions
+* Small, easy to read, a single file API
+* Revised BSD License
+* written in Python
+
+Use Cases
+---------
+
+* ensure service availability: test and start/stop when problems
+* collect system statistics/data, log locally and/or remotely
+* alert on system/service health, take actions
+
+Installation
+------------
+
+```
+python setup.py install
+```
+or
+
+```
+easy_install monitoring
+```
+
+More?
+-----
+
+Read the `presentation on Monitoring <http://ur1.ca/45ku5>`_ (previously named
+Watchdog).
