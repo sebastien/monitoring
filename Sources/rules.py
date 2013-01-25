@@ -1,3 +1,4 @@
+from utils import *
 # -----------------------------------------------------------------------------
 #
 # RULES
@@ -133,7 +134,7 @@ class SystemHealth(Rule):
 		else:
 			values["cpu"] = (cpu, self.cpu)
 		if mem > self.mem:
-			errors["cpu"] = (mem, self.mem)
+			errors["mem"] = (mem, self.mem)
 		else:
 			values["mem"] = (mem, self.mem)
 		for mount, usage in disk.items():
