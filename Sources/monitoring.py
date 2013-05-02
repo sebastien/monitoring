@@ -563,19 +563,31 @@ class Tmux:
 	@classmethod
 	def ListWindows( self, session ):
 		windows = filter(lambda _:_, self.Run("list-windows -t" + session).split("\n"))
-		return map(lambda _:_.split(":",1)[1].split("[",1)[0].strip(), windows)
+		res     = []
+		# OUTPUT is like:
+		# 1: ONE- (1 panes) [122x45] [layout bffe,122x45,0,0,1] @1
+		# 2: ONE* (1 panes) [122x45] [layout bfff,122x45,0,0,2] @2 (active)
+		for window in windows:
+			index, name = window.split(":",1)
+			name        = name.split("(",1)[0].strip()
+			if name[-1] in "*-": name = name[:-1]
+			res.append( ( int(index), name, window.endswith("(active)") ))
+		return res
+
+	@classmethod
+	def GetWindows( self, session, name ):
+		return ([_ for _ in self.ListWindows(session) if _[1] == name ])
 
 	@classmethod
 	def EnsureWindow( self, session, name ):
-		windows = self.ListWindows(session)
-		if name not in windows:
-			self.Run("new-window -t {0}:{1} -n {2}".format(session, len(windows), name))
+		if not self.GetWindows(session):
+			self.Run("new-window -t {0} -n {2}".format(session, name))
 		return self
 
 	@classmethod
 	def KillWindow( self, session, name ):
-		if name in self.ListWindows(session):
-			self.Run("kill-window -t {0}:{1}".format(session, name))
+		for i,window,is_active in self.GetWindows(session, name):
+			self.Run("kill-window -t {0}:{1}".format(session, i))
 
 	@classmethod
 	def Read( self, session, name ):
