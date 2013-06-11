@@ -6,7 +6,7 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   10-Feb-2010
-# Last mod.         :   22-Nov-2012
+# Last mod.         :   11-Jun-2013
 # -----------------------------------------------------------------------------
 
 import re, sys, os, time, datetime, stat, smtplib, string, json, fnmatch
@@ -35,7 +35,7 @@ import httplib, socket, threading, subprocess, glob, traceback
 #    _start_new_thread(self.__bootstrap, ())
 #thread.error: can't start new thread
 
-__version__ = "0.9.5"
+__version__ = "0.9.6"
 
 RE_SPACES  = re.compile("\s+")
 RE_INTEGER = re.compile("\d+")
@@ -323,6 +323,8 @@ class Process:
 		# root      2508  2474  0   902  1228   0 14:02 ?        00:00:00 /usr/lib/hal/hald-addon-rfkill-killswitch
 		# root      2516  2474  0   902  1232   1 14:02 ?        00:00:00 /usr/lib/hal/hald-addon-leds
 		# 1000     29393     1  0  6307 17108   1 Feb26 ?        00:00:25 /usr/bin/python /usr/lib/telepathy/telepathy-butterfly'
+		# We normalize the command
+		command = command.replace("\"","").replace("'","")
 		# Note: we skip the header and the trailing EOL
 		for line in popen("ps -AF").split("\n")[1:-1]:
 			match = cls.RE_PS_OUTPUT.match(line)
@@ -556,7 +558,11 @@ class Tmux:
 	
 	@classmethod
 	def EnsureSession( self, session ):
-		if session not in self.ListSessions():
+		try:
+			sessions = self.ListSessions()
+		except:
+			sessions = []
+		if session not in sessions:
 			self.Run("new-session -d -s " + session)
 		return self
 
@@ -580,8 +586,8 @@ class Tmux:
 
 	@classmethod
 	def EnsureWindow( self, session, name ):
-		if not self.GetWindows(session):
-			self.Run("new-window -t {0} -n {2}".format(session, name))
+		if not self.GetWindows(session, name):
+			self.Run("new-window -t {0} -n {1}".format(session, name))
 		return self
 
 	@classmethod
@@ -602,6 +608,7 @@ class Tmux:
 # UNITS
 #
 # -----------------------------------------------------------------------------
+
 class Size:
 	"""Converts the given value in the given units to bytes"""
 
@@ -833,7 +840,7 @@ class TmuxRun(Action):
 		self.cwd     = cwd
 		self.tmux    = Tmux
 	
-	def run(self, monitor, service, rule, runner):
+	def run(self, monitor=None, service=None, rule=None, runner=None):
 		self.tmux.EnsureSession(self.session)
 		self.tmux.EnsureWindow (self.session, self.window)
 		# Is the terminal responsive?
