@@ -6,7 +6,7 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   10-Feb-2010
-# Last mod.         :   11-Jun-2013
+# Last mod.         :   05-Sep-2013
 # -----------------------------------------------------------------------------
 
 import re, sys, os, time, datetime, stat, smtplib, string, json, fnmatch
@@ -35,7 +35,7 @@ import httplib, socket, threading, subprocess, glob, traceback
 #    _start_new_thread(self.__bootstrap, ())
 #thread.error: can't start new thread
 
-__version__ = "0.9.6"
+__version__ = "0.9.7"
 
 RE_SPACES  = re.compile("\s+")
 RE_INTEGER = re.compile("\d+")
@@ -535,7 +535,7 @@ class System:
 class Tmux:
 	"""A simple wrapper around the `tmux`  terminal multiplexer that allows to
 	create sessions and windows and execute arbitrary code in it.
-	
+
 	This is particularly useful if you want to run command on remote servers
 	but still want easy access to their detailed output/interact with them."""
 
@@ -555,7 +555,7 @@ class Tmux:
 	@classmethod
 	def ListSessions( self ):
 		return map(lambda _:_.split(":",1)[0].strip(), self.Run("list-session").split("\n"))
-	
+
 	@classmethod
 	def EnsureSession( self, session ):
 		try:
@@ -575,7 +575,7 @@ class Tmux:
 		# 2: ONE* (1 panes) [122x45] [layout bfff,122x45,0,0,2] @2 (active)
 		for window in windows:
 			index, name = window.split(":",1)
-			name        = name.split("(",1)[0].strip()
+			name        = name.split("(",1)[0].split("[")[0].strip()
 			if name[-1] in "*-": name = name[:-1]
 			res.append( ( int(index), name, window.endswith("(active)") ))
 		return res
@@ -724,7 +724,7 @@ class Action:
 
 	def info( self, *message ):
 		Logger.I().info(*message)
-	
+
 	def err( self, *message ):
 		Logger.I().err(*message)
 
@@ -839,14 +839,14 @@ class TmuxRun(Action):
 		self.command = command
 		self.cwd     = cwd
 		self.tmux    = Tmux
-	
+
 	def run(self, monitor=None, service=None, rule=None, runner=None):
 		self.tmux.EnsureSession(self.session)
 		self.tmux.EnsureWindow (self.session, self.window)
 		# Is the terminal responsive?
 		key = "TMUX_ACTION_CHECK_{0}".format(time.time())
 		self.tmux.Write(self.session, self.window, "echo " + key)
-		# We check if the terminal is responsive. If not we let it 1s to 
+		# We check if the terminal is responsive. If not we let it 1s to
 		# process the command before killing the window
 		is_responsive = False
 		for i in range(10):
@@ -1514,7 +1514,7 @@ class Monitor:
 		return self
 
 	def run(self, iterations=-1):
-		"""Runs this Monitor for the given number of `iterations`. 
+		"""Runs this Monitor for the given number of `iterations`.
 		If `iterations` is `-1` then the monitor will run indefinitely."""
 		Signals.Setup()
 		self.isRunning = True
@@ -1615,14 +1615,14 @@ class Monitor:
 			self.logger.err("Rule did not return Success or Failure instance: %s, got %s" % (rule, runner.result))
 		# We unregister the runnner
 		del self.runners[runner.getID()]
-	
+
 	def onActionEnded( self, runner ):
 		# We unregister the runnner
 		del self.runners[runner.getID()]
 
 	def _createRunner(self, runable, context, iteration, callback, runableId=None):
 		"""Creates a runner for the given runable, making sure that it won't
-		be started twice, raising `RunnerStillRunning` 
+		be started twice, raising `RunnerStillRunning`
 		or `RunnerThreadPoolFull` in case of problems."""
 		# FIXME: we should prefix the ID with the Rule name, if any
 		if runableId is None:
@@ -1660,6 +1660,6 @@ def command(args):
 		print "Usage: monitoring FILE"
 	else:
 		with file(args[0],"r") as f:
-			exec f.read() 
+			exec f.read()
 
 # EOF - vim: tw=80 ts=4 sw=4 noet
