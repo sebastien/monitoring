@@ -43,13 +43,13 @@ RE_INTEGER = re.compile("\d+")
 def config(variable, default, normalize=lambda _:_):
 	return normalize(os.environ.get(variable.upper().replace(".","_")) or default)
 
-def cat(path):
+def cat(path,default=""):
 	"""Outputs the content of the file at the given path"""
 	try:
 		with file(path, 'r') as f:
 			d = f.read()
 	except Exception,e:
-		d = None
+		d = default
 	return d
 
 def count(path):
@@ -312,6 +312,14 @@ class Process:
 	])))
 
 	@classmethod
+	def FindLike( cls, command, strict=True ):
+		if strict:
+			predicate = lambda a,b: a in b
+		else:
+			predicate = lambda a,b: a.lower() in b.lower()
+		return cls.Find(command, predicate)
+
+	@classmethod
 	def Find(cls, command, compare=(lambda a, b: a == b)):
 		# FIXME: Probably better to direcly use List()
 		# The output looks like this
@@ -554,7 +562,7 @@ class Tmux:
 
 	@classmethod
 	def ListSessions( self ):
-		return map(lambda _:_.split(":",1)[0].strip(), self.Run("list-session").split("\n"))
+		return [_ for _ in map(lambda _:_.split(":",1)[0].strip(), self.Run("list-session").split("\n")) if _]
 
 	@classmethod
 	def EnsureSession( self, session ):
@@ -565,6 +573,10 @@ class Tmux:
 		if session not in sessions:
 			self.Run("new-session -d -s " + session)
 		return self
+
+	@classmethod
+	def HasSession( self, session ):
+		return session in self.ListSessions()
 
 	@classmethod
 	def ListWindows( self, session ):
@@ -582,7 +594,11 @@ class Tmux:
 
 	@classmethod
 	def GetWindows( self, session, name ):
-		return ([_ for _ in self.ListWindows(session) if _[1] == name ])
+		return ([_ for _ in self.ListWindows(session) if _[1] == name or _[0] == name])
+
+	@classmethod
+	def HasWindow( self, session, name ):
+		return self.GetWindows(session, name) and True or False
 
 	@classmethod
 	def EnsureWindow( self, session, name ):
@@ -602,6 +618,22 @@ class Tmux:
 	@classmethod
 	def Write( self, session, name, commands):
 		self.Run("send-keys -t {0}:{1} {2} C-m".format(session, name, repr(commands)))
+
+	@classmethod
+	def IsResponsive( cls, session, window ):
+		is_responsive = False
+		if cls.HasSession(session) and cls.HasWindow(session, window):
+			# Is the terminal responsive?
+			key = "TMUX_ACTION_CHECK_{0}".format(time.time())
+			cls.Write(session, window, "echo " + key)
+			for i in range(10):
+				text = cls.Read(session, window)
+				is_responsive = text.find(key) != -1
+				if not is_responsive:
+					time.sleep(0.1)
+				else:
+					break
+		return is_responsive
 
 # -----------------------------------------------------------------------------
 #
@@ -843,22 +875,9 @@ class TmuxRun(Action):
 	def run(self, monitor=None, service=None, rule=None, runner=None):
 		self.tmux.EnsureSession(self.session)
 		self.tmux.EnsureWindow (self.session, self.window)
-		# Is the terminal responsive?
-		key = "TMUX_ACTION_CHECK_{0}".format(time.time())
-		self.tmux.Write(self.session, self.window, "echo " + key)
-		# We check if the terminal is responsive. If not we let it 1s to
-		# process the command before killing the window
-		is_responsive = False
-		for i in range(10):
-			text = self.tmux.Read(self.session, self.window)
-			is_responsive = text.find(key) != -1
-			if not is_responsive:
-				time.sleep(0.1)
-			else:
-				break
-		# If the terminal is not responsive, we simply kill then window
-		# and restart it
-		if not is_responsive:
+		if not self.tmux.IsResponsive(self.session, self.window):
+			# If the terminal is not responsive, we simply kill then window
+			# and restart it
 			self.tmux.KillWindow(self.session, self.window)
 			self.tmux.EnsureWindow(self.session, self.window)
 		# We're now safe to start the command
