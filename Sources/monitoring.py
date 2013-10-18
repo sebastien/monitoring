@@ -6,7 +6,7 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   10-Feb-2010
-# Last mod.         :   05-Sep-2013
+# Last mod.         :   19-Oct-2013
 # -----------------------------------------------------------------------------
 
 import re, sys, os, time, datetime, stat, smtplib, string, json, fnmatch
@@ -387,8 +387,9 @@ class Process:
 
 	@classmethod
 	def Kill(cls, pid):
-		Logger.Info("Killing process: " + repr(pid))
-		popen("kill -9 %s" % (pid))
+		if pid is not None:
+			Logger.Info("Killing process: " + repr(pid))
+			popen("kill -9 %s" % (pid))
 
 	@classmethod
 	def Info(cls, pid):
@@ -1525,18 +1526,34 @@ class Monitor:
 		self.iteration             = 0
 		self.iterationLastDuration = 0
 		self.runners               = {}
+		self.reactions             = {}
 		map(self.addService, services)
+
+	def on( self, **reactions ):
+		for event, callback in reactions:
+			self.onEvent(event, callback)
+		return self
+
+	def onEvent( self, name, callback ):
+		callbacks = self.reactions.setDefault(name, [])
+		if callback not in callbacks: callbacks.append(callback)
+
+	def trigger( self, name ):
+		for callback in self.reactions.get(name,[]):
+			callback()
 
 	def addService(self, service):
 		"""Adds a service to this monitor."""
 		self.services.append(service)
 		return self
 
-	def run(self, iterations=-1):
+	def run(self, iterations=-1, events=None):
 		"""Runs this Monitor for the given number of `iterations`.
 		If `iterations` is `-1` then the monitor will run indefinitely."""
 		Signals.Setup()
 		self.isRunning = True
+		for event in (events or []):
+			self.trigger(event)
 		while self.isRunning:
 			it_start = now()
 			next_run = it_start + self.freq
