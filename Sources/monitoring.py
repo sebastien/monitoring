@@ -1530,12 +1530,12 @@ class Monitor:
 		map(self.addService, services)
 
 	def on( self, **reactions ):
-		for event, callback in reactions:
+		for event, callback in reactions.items():
 			self.onEvent(event, callback)
 		return self
 
 	def onEvent( self, name, callback ):
-		callbacks = self.reactions.setDefault(name, [])
+		callbacks = self.reactions.setdefault(name, [])
 		if callback not in callbacks: callbacks.append(callback)
 
 	def trigger( self, name ):
