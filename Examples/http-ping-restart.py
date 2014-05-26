@@ -1,8 +1,9 @@
+#!/usr/bin/env python
 from monitoring import *
 __doc__ = """How to ensure that a given (HTTP) service stays up and running."""
 Monitor(
 	Service(
-		name="myservice-ensure-up",
+		name=__file__[0].split(".")[0],
 		monitor=(
 			HTTP(
 				# We monitor the 'http://localhost:8000' URL, which is where

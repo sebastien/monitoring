@@ -1,8 +1,12 @@
 #!/usr/bin/env python
 from monitoring import *
+__doc__ = """
+Queries the Google search engin and fail if the query takes
+more than 80ms.
+"""
 Monitor(
 	Service(
-		name = "google-search-latency",
+		name=__file__[0].split(".")[0],
 		monitor = (
 			HTTP(
 				GET="http://www.google.ca/search?q=monitoring",
