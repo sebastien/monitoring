@@ -1,6 +1,7 @@
 from monitoring import Time, Rule, Success
 from jenkinsapi.jenkins import Jenkins as JenkinsApi
 
+# pip install jenkinsapi
 
 class Jenkins(Rule):
   def __init__(self, server='localhost:8080', user=None, passw=None,
