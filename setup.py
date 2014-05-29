@@ -2,8 +2,7 @@
 # Encoding: utf-8
 # See: <http://docs.python.org/distutils/introduction.html>
 from distutils.core import setup
-import os, sys
-VERSION = eval(filter(lambda _:_.startswith("__version__"), file("Sources/monitoring.py").readlines())[0].split("=")[1])
+VERSION = eval(filter(lambda _:_.startswith("__version__"), file("Sources/monitoring/__init__.py").readlines())[0].split("=")[1])
 setup(
 	name             = "monitoring",
 	version          = VERSION,
@@ -15,7 +14,7 @@ setup(
 	keywords         = ["daemon", "services", "monitoring", "administration"],
 	install_requires = [],
 	package_dir      = {"":"Sources"},
-	py_modules       = ["monitoring"],
+	packages         = ["monitoring", "monitoring.monitors"],
 	scripts          = ["Scripts/monitoring"],
     license          = "License :: OSI Approved :: BSD License",
 	classifiers      = [
