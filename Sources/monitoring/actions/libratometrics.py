@@ -1,8 +1,8 @@
-import sys
 from monitoring import Action
 import librato
 
 # pip install librato-metrics
+
 
 class Librato(Action):
   """Sends the result to librato metrics"""
@@ -21,8 +21,6 @@ class Librato(Action):
 
   def send(self, value):
     self.librato_api.submit(self.name, value, source=self.source)
-
-    sys.stdout.write("%s=%f" % (self.name, value))
     return True
 
   def __call__(self, value):
