@@ -1688,8 +1688,6 @@ class Monitor:
 
 SUCCESS = Success()
 FAILURE = Failure()
-# Updates the CPU stats so that CPUUsage works
-System.CPUStats()
 
 def command(args):
 	if len(args) != 1:
