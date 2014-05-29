@@ -1,8 +1,9 @@
 from monitoring import Time, Rule, Success
+
 try:
 	from jenkinsapi.jenkins import Jenkins as JenkinsApi
 except ImportError:
-	raise Exception("Module `jenkinsapi` is required")
+	JenkinsApi = None
 
 class Jenkins(Rule):
 
@@ -13,10 +14,11 @@ class Jenkins(Rule):
 		self.action = None
 		if monitor_queue:
 			self.action = 'monitor_queue:%s' % monitor_queue
-		self.jenkins = JenkinsApi(server, user, passw)
+		self.jenkins = JenkinsApi(server, user, passw) if JeninsApi or None
 
 	def run(self):
 		Rule.run(self)
+		assert self.jenkins, "jenkinsapi module is not  installed"
 		if self.action == 'monitor_queue:global':
 			return Success(len(self.jenkins.get_queue().keys()))
 		else:
