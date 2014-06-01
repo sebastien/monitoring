@@ -31,6 +31,8 @@ Monitor(
     name=__file__[0].split(".")[0],
     monitor=(
       # We use delta for demo purpose, just b/c librato needs a numeric value
+      # You should see 0s here:
+      # https://metrics.librato.com/metrics/my.test.metric?duration=300
       Delta(Succeed(Time.s(5)), success=action)
     )
   )
