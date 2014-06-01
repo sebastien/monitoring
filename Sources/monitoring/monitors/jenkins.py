@@ -14,7 +14,7 @@ class Jenkins(Rule):
 		self.action = None
 		if monitor_queue:
 			self.action = 'monitor_queue:%s' % monitor_queue
-		self.jenkins = JenkinsApi(server, user, passw) if JeninsApi or None
+		self.jenkins = JenkinsApi(server, user, passw) if JenkinsApi else None
 
 	def run(self):
 		Rule.run(self)
