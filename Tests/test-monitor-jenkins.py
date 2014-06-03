@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import argparse
 from monitoring import Monitor, Service, Time, Print
-from monitoring.monitors import Jenkins
+from monitoring.rules import Jenkins
 
 __doc__='''
 Example:

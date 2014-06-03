@@ -14,7 +14,7 @@ setup(
 	keywords         = ["daemon", "services", "monitoring", "administration"],
 	install_requires = [],
 	package_dir      = {"":"Sources"},
-	packages         = ["monitoring", "monitoring.monitors", "monitoring.actions"],
+	packages         = ["monitoring", "monitoring.rules", "monitoring.actions"],
 	scripts          = ["Scripts/monitoring"],
     license          = "License :: OSI Approved :: BSD License",
 	classifiers      = [
