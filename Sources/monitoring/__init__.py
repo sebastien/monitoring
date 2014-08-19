@@ -321,27 +321,12 @@ class Process:
 
 	@classmethod
 	def Find(cls, command, compare=(lambda a, b: a == b)):
-		# FIXME: Probably better to direcly use List()
-		# The output looks like this
-		# 1000      2446     1 12 84048 82572   0 14:02 ?        00:04:08 python /usr/lib/exaile/exaile.py --datadir=/usr/share/exaile/data --startgui
-		# 1000      2472     1  0  2651  3496   0 14:02 ?        00:00:00 /usr/lib/gvfs/gvfsd-http --spawner :1.6 /org/gtk/gvfs/exec_spaw/2
-		# 107       2473     1  0  4274  4740   0 14:02 ?        00:00:00 /usr/sbin/hald
-		# root      2474  2473  0   883  1292   1 14:02 ?        00:00:00 hald-runner
-		# root      2503  2474  0   902  1264   1 14:02 ?        00:00:00 hald-addon-input: Listening on /dev/input/event10 /dev/input/event4 /dev/input/event11 /dev/input/event9 /dev/in
-		# root      2508  2474  0   902  1228   0 14:02 ?        00:00:00 /usr/lib/hal/hald-addon-rfkill-killswitch
-		# root      2516  2474  0   902  1232   1 14:02 ?        00:00:00 /usr/lib/hal/hald-addon-leds
-		# 1000     29393     1  0  6307 17108   1 Feb26 ?        00:00:25 /usr/bin/python /usr/lib/telepathy/telepathy-butterfly'
-		# We normalize the command
 		command = command.replace("\"","").replace("'","")
 		# Note: we skip the header and the trailing EOL
-		for line in popen("ps -AF").split("\n")[1:-1]:
-			match = cls.RE_PS_OUTPUT.match(line)
-			if match:
-				pid = match.group(1)
-				ppid = match.group(2)
-				cmd = match.group(3)
+		for pid, cmd in cls.List().items():
+			if cmd:
 				if compare(command, cmd):
-					return (pid, ppid, cmd)
+					return (pid, None, cmd)
 			else:
 				Logger.Err("Problem with PS output !: " + repr(line))
 		return None
