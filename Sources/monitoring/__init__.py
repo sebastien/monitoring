@@ -6,7 +6,7 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   10-Feb-2010
-# Last mod.         :   19-Oct-2013
+# Last mod.         :   29-Dec-2014
 # -----------------------------------------------------------------------------
 
 import re, sys, os, time, datetime, stat, smtplib, string, json, fnmatch
@@ -35,7 +35,7 @@ import httplib, socket, threading, subprocess, glob, traceback
 #    _start_new_thread(self.__bootstrap, ())
 #thread.error: can't start new thread
 
-__version__ = "0.9.7"
+__version__ = "0.9.8"
 
 RE_SPACES  = re.compile("\s+")
 RE_INTEGER = re.compile("\d+")
@@ -134,6 +134,13 @@ def timestamp():
 	("1977-04-22T01:00:00-05:00")"""
 	n = datetime.datetime.now()
 	return "%04d-%02d-%02dT%02d:%02d:%02d" % (
+		n.year, n.month, n.day, n.hour, n.minute, n.second
+	)
+
+def timenum():
+	"""Like timestamp, but just the numbers."""
+	n = datetime.datetime.now()
+	return "%04d%02d%02d%02d%02d%02d" % (
 		n.year, n.month, n.day, n.hour, n.minute, n.second
 	)
 
@@ -534,7 +541,7 @@ class Tmux:
 	but still want easy access to their detailed output/interact with them."""
 
 	@classmethod
-	def Run( self, params ):
+	def Cmd( self, params ):
 		cmd = "tmux " + params
 		res = popen(cmd)
 		if isinstance(res, tuple):
@@ -548,7 +555,7 @@ class Tmux:
 
 	@classmethod
 	def ListSessions( self ):
-		return [_ for _ in map(lambda _:_.split(":",1)[0].strip(), self.Run("list-session").split("\n")) if _]
+		return [_ for _ in map(lambda _:_.split(":",1)[0].strip(), self.Cmd("list-session").split("\n")) if _]
 
 	@classmethod
 	def EnsureSession( self, session ):
@@ -557,7 +564,7 @@ class Tmux:
 		except:
 			sessions = []
 		if session not in sessions:
-			self.Run("new-session -d -s " + session)
+			self.Cmd("new-session -d -s " + session)
 		return self
 
 	@classmethod
@@ -566,7 +573,8 @@ class Tmux:
 
 	@classmethod
 	def ListWindows( self, session ):
-		windows = filter(lambda _:_, self.Run("list-windows -t" + session).split("\n"))
+		if not self.HasSession(session): return []
+		windows = filter(lambda _:_, self.Cmd("list-windows -t" + session).split("\n"))
 		res     = []
 		# OUTPUT is like:
 		# 1: ONE- (1 panes) [122x45] [layout bffe,122x45,0,0,1] @1
@@ -580,43 +588,74 @@ class Tmux:
 
 	@classmethod
 	def GetWindows( self, session, name ):
+		if not self.HasSession(session): return []
 		return ([_ for _ in self.ListWindows(session) if _[1] == name or _[0] == name])
 
 	@classmethod
 	def HasWindow( self, session, name ):
+		if not self.HasSession(session): return False
 		return self.GetWindows(session, name) and True or False
 
 	@classmethod
 	def EnsureWindow( self, session, name ):
+		self.EnsureSession(session)
 		if not self.GetWindows(session, name):
-			self.Run("new-window -t {0} -n {1}".format(session, name))
+			self.Cmd("new-window -t {0} -n {1}".format(session, name))
 		return self
 
 	@classmethod
 	def KillWindow( self, session, name ):
+		if not self.HasSession(session): return False
 		for i,window,is_active in self.GetWindows(session, name):
-			self.Run("kill-window -t {0}:{1}".format(session, i))
+			self.Cmd("kill-window -t {0}:{1}".format(session, i))
+		return True
 
 	@classmethod
 	def Read( self, session, name ):
-		return self.Run("capture-pane -t {0}:{1} \\; save-buffer -".format(session, name))
+		return self.Cmd("capture-pane -t {0}:{1} \\; save-buffer -".format(session, name))
 
 	@classmethod
 	def Write( self, session, name, commands):
-		self.Run("send-keys -t {0}:{1} {2} C-m".format(session, name, repr(commands)))
+		self.Cmd("send-keys -t {0}:{1} {2}".format(session, name, repr(commands)))
+		self.Cmd("send-keys -t {0}:{1} C-m".format(session, name))
 
 	@classmethod
-	def IsResponsive( cls, session, window ):
+	def Run( self, session, name, command, timeout=10, resolution=0.5):
+		"""This function allows to run a command and retrieve its output
+		as given by the shell. It is quite error prone, as it will include
+		your prompt styling and will only poll the output at `resolution` seconds
+		interval."""
+		self.EnsureSession(name) ; self.EnsureWindow(session, name)
+		delimiter    = "CMD_" + timenum()
+		delimier_cmd = "echo " + delimiter
+		output       = None
+		found        = False
+		self.Write(session, name, command + ";" + delimier_cmd)
+		for i in range(int(timeout / resolution)):
+			output = self.Read(session, name)
+			if ("\n" + delimiter) in output:
+				found = True
+				break
+			else:
+				time.sleep(0.1)
+		# The command output will be conveniently placed after the `echo
+		# CMD_XXX` and before the output `CMD_XXX`. We use negative indexes
+		# to avoid access problems when the program's output is too long.
+		return output.rsplit(delimiter, 2)[-2].split("\n", 1)[-1] if found else None
+
+	@classmethod
+	def IsResponsive( cls, session, window, timeout=1, resolution=0.1 ):
 		is_responsive = False
 		if cls.HasSession(session) and cls.HasWindow(session, window):
 			# Is the terminal responsive?
 			key = "TMUX_ACTION_CHECK_{0}".format(time.time())
 			cls.Write(session, window, "echo " + key)
-			for i in range(10):
+			key = "\n" + key
+			for i in range(int(timeout / resolution)):
 				text = cls.Read(session, window)
 				is_responsive = text.find(key) != -1
 				if not is_responsive:
-					time.sleep(0.1)
+					time.sleep(resolution)
 				else:
 					break
 		return is_responsive
