@@ -6,7 +6,7 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   10-Feb-2010
-# Last mod.         :   29-Dec-2014
+# Last mod.         :   09-Apr-2015
 # -----------------------------------------------------------------------------
 
 import re, sys, os, time, datetime, stat, smtplib, string, json, fnmatch
@@ -35,7 +35,7 @@ import httplib, socket, threading, subprocess, glob, traceback
 #    _start_new_thread(self.__bootstrap, ())
 #thread.error: can't start new thread
 
-__version__ = "0.9.8"
+__version__ = "0.9.9"
 
 RE_SPACES  = re.compile("\s+")
 RE_INTEGER = re.compile("\d+")
@@ -334,8 +334,6 @@ class Process:
 			if cmd:
 				if compare(command, cmd):
 					return (pid, None, cmd)
-			else:
-				Logger.Err("Problem with PS output !: " + repr(line))
 		return None
 
 	@classmethod
@@ -379,9 +377,32 @@ class Process:
 
 	@classmethod
 	def Kill(cls, pid):
+		"""Kills -9 the process with the given pid."""
 		if pid is not None:
 			Logger.Info("Killing process: " + repr(pid))
 			popen("kill -9 %s" % (pid))
+
+	@classmethod
+	def KillGroup(cls, pid, ppidLimit=100):
+		"""Kills the process group of the given pid, only if the
+		ppid is stricly above the ppid limit (100 by default). If the
+		ppid is below the limit, only the pid will be killed.
+		Returns the ppid or pid used to kill the process, None otherwise."""
+		if pid is not None:
+			ppid = cls.Status(pid)["ppid"]
+			print cls.Status(pid)
+			Logger.Info("Killing process's group: " + repr(ppid))
+			# SEE: http://stackoverflow.com/questions/392022/best-way-to-kill-all-child-processes
+			if int(ppid) > ppidLimit:
+				popen("kill -9 %s" % (ppid))
+				return ppid
+			else:
+				# If the process is in ppid < 10, then we kill the process
+				# instead
+				popen("kill -9 %s" % (pid))
+				return pid
+		else:
+			return None
 
 	@classmethod
 	def Info(cls, pid):
@@ -401,6 +422,7 @@ class Process:
 			# FIXME: Add process start time, end time, cpu %
 			return dict(
 				pid=pid,
+				ppid=status["ppid"],
 				exists=True,
 				f=count("/proc/%d/fd" % (pid)),
 				tasks=count("/proc/%d/task" % (pid)),
@@ -620,12 +642,16 @@ class Tmux:
 		self.Cmd("send-keys -t {0}:{1} C-m".format(session, name))
 
 	@classmethod
+	def CtrlC( self, session, name):
+		self.Cmd("send-keys -t {0}:{1} C-c".format(session, name))
+
+	@classmethod
 	def Run( self, session, name, command, timeout=10, resolution=0.5):
 		"""This function allows to run a command and retrieve its output
 		as given by the shell. It is quite error prone, as it will include
 		your prompt styling and will only poll the output at `resolution` seconds
 		interval."""
-		self.EnsureSession(name) ; self.EnsureWindow(session, name)
+		self.EnsureWindow(session, name)
 		delimiter    = "CMD_" + timenum()
 		delimier_cmd = "echo " + delimiter
 		output       = None
@@ -1157,6 +1183,7 @@ class HTTP(Rule):
 	def __init__(self, GET=None, POST=None, HEAD=None, timeout=Time.s(10), freq=Time.m(1), fail=(), success=()):
 		Rule.__init__(self, freq, fail, success)
 		url = None
+		# TODO: Implement protocol (HTTP/HTTPS)
 		#method = None
 		if GET:
 			method = "GET"
@@ -1167,7 +1194,6 @@ class HTTP(Rule):
 		elif HEAD:
 			method = "HEAD"
 			url = HEAD
-
 		if url.startswith("http://"):
 			url = url[7:]
 		server, uri = url.split("/",  1)
@@ -1194,9 +1220,17 @@ class HTTP(Rule):
 			resp = conn.getresponse()
 			res = resp.read()
 		except socket.error, e:
-			return Failure("Socket error: %s" % (e))
+			return Failure("HTTP request socket error: {method} {server}:{port}{uri} {e}".format(
+				method=self.method, server=self.server, port=self.port, uri=self.uri, e=e
+			))
+		except Exception, e:
+			return Failure("HTTP request failed: {method} {server}:{port}{uri} {e}".format(
+				method=self.method, server=self.server, port=self.port, uri=self.uri, e=e
+			))
 		if resp.status >= 400:
-			return Failure("HTTP response has error status %s" % (resp.status))
+			return Failure("HTTP request failed with status {status}: {method} {server}:{port}{uri}".format(
+				method=self.method, server=self.server, port=self.port, uri=self.uri, status=resp.status
+			))
 		else:
 			return Success(res)
 
