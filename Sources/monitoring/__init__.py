@@ -337,6 +337,17 @@ class Process:
 		return None
 
 	@classmethod
+	def Children( cls, pid ):
+		"""Returns the list of processes that have the given `pid` as `ppid`"""
+		res = []
+		pid = int(pid)
+		for cpid, cmd in cls.List().items():
+			ppid = int(cls.Status(cpid)["ppid"])
+			if ppid == pid:
+				res.append( (cpid, None, cmd))
+		return res
+
+	@classmethod
 	def List(cls):
 		"""Returns a map of pid to cmdline"""
 		res = {}
@@ -376,31 +387,15 @@ class Process:
 		popen(command, cwd)
 
 	@classmethod
-	def Kill(cls, pid):
+	def Kill(cls, pid, children=False):
 		"""Kills -9 the process with the given pid."""
 		if pid is not None:
+			if children:
+				for cpid, _, cmd in cls.Children(pid):
+					# We need to recursively kill the childrens
+					cls.Kill(cpid, children=True)
 			Logger.Info("Killing process: " + repr(pid))
-			popen("kill -9 %s" % (pid))
-
-	@classmethod
-	def KillGroup(cls, pid, ppidLimit=100):
-		"""Kills the process group of the given pid, only if the
-		ppid is stricly above the ppid limit (100 by default). If the
-		ppid is below the limit, only the pid will be killed.
-		Returns the ppid or pid used to kill the process, None otherwise."""
-		if pid is not None:
-			ppid = cls.Status(pid)["ppid"]
-			print cls.Status(pid)
-			Logger.Info("Killing process's group: " + repr(ppid))
-			# SEE: http://stackoverflow.com/questions/392022/best-way-to-kill-all-child-processes
-			if int(ppid) > ppidLimit:
-				popen("kill -9 %s" % (ppid))
-				return ppid
-			else:
-				# If the process is in ppid < 10, then we kill the process
-				# instead
-				popen("kill -9 %s" % (pid))
-				return pid
+			return popen("kill -9 %s" % (pid))
 		else:
 			return None
 
@@ -422,7 +417,7 @@ class Process:
 			# FIXME: Add process start time, end time, cpu %
 			return dict(
 				pid=pid,
-				ppid=status["ppid"],
+				ppid=int(status["ppid"]),
 				exists=True,
 				f=count("/proc/%d/fd" % (pid)),
 				tasks=count("/proc/%d/task" % (pid)),
