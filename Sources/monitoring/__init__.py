@@ -314,6 +314,7 @@ class Process:
 	processes."""
 	# See <http://linux.die.net/man/5/proc>
 
+	RE_PID       = re.compile("^\d+$")
 	RE_PS_OUTPUT = re.compile("^%s$" % ("\s+".join([
 		"[^.]+",  "(\d+)", "(\d+)", "\d+", "\d+", "\d+", "\d+", "[^ ]+", "[^ ]+", "\d\d\:\d\d\:\d\d", "(.+)"
 	])))
@@ -353,7 +354,7 @@ class Process:
 		res = {}
 		for p in glob.glob("/proc/*/cmdline"):
 			process = p.split("/")[2]
-			if process != "self":
+			if cls.RE_PID.match(process):
 				res[int(process)] = cat(p).replace("\x00", " ")
 		return res
 
