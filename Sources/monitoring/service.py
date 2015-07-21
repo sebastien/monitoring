@@ -6,11 +6,11 @@
 # License           :   Revised BSD Licensed
 # -----------------------------------------------------------------------------
 # Creation date     :   29-Dec-2014
-# Last mod.         :   09-Apr-2015
+# Last mod.         :   21-Jul-2015
 # -----------------------------------------------------------------------------
 
-import os, time, sys, copy
-from   monitoring import Tmux
+import os, time, sys, copy, json
+from   monitoring import Tmux, Process
 
 # -----------------------------------------------------------------------------
 #
@@ -137,5 +137,72 @@ class TmuxService(Service):
 	def restart( self ):
 		self.stop()
 		self.start()
+
+
+# -----------------------------------------------------------------------------
+#
+# WEB SERVICE
+#
+# -----------------------------------------------------------------------------
+
+class WebService(Service):
+
+	CONFIGURATION = {
+		"session" : "webservice",
+		"port"    : 8000,
+		"host"    : "0.0.0.0",
+		"path"    : ".",
+		"webapp"  : "webapp"
+	}
+
+	def getCommand( self ):
+		return self.config["command"].format(self.config)
+
+	def ensure( self ):
+		"""Ensures that the service is running."""
+		session = self.config["session"]
+		path    = os.path.abspath(self.config["path"])
+		Tmux.EnsureWindow(session, "webapp")
+		if Tmux.IsResponsive(session, "webapp"):
+			# If the Tmux session is responsive, we start the process
+			Tmux.Run(session, "webapp", "cd {0}".format(path))
+			Tmux.Run(session, "webapp", "./env.sh ./{webapp} {port} {host}".format(**self.config))
+		elif not self.ping().isSuccess():
+			# If the Tmux session is not responsive and the ping does not work
+			# we kill and restart the process.
+			self.reload()
+		return self.process()
+
+	def reload( self ):
+		self.stop()
+		session = self.config["session"]
+		Tmux.Run  (session, "webapp", "./env.sh ./{webapp} {port} {host}".format(**self.config))
+		return self.process()
+
+	def start( self ):
+		return self.ensure()
+
+	def stop( self ):
+		session = self.config["session"]
+		Tmux.EnsureWindow(session, "webapp")
+		p = Process.FindLike(self.config["webapp"])
+		# We kill the whole process group
+		if p: Process.Kill(p[0], children=True)
+		return self.process()
+
+	def process( self ):
+		return Process.FindLike(self.config["webapp"])
+
+	def ping( self ):
+		return HTTP(
+			GET="http://{host}:{port}/api/ping".format(**self.config)
+		).run()
+
+	def status( self ):
+		session = self.config["session"]
+		self.out("Tmux session      :", Tmux.HasSession(session))
+		self.out("Tmux webapp       :", Tmux.HasWindow(session, "webapp"))
+		self.out("Webapp running    :", Process.FindLike(self.config["webapp"]) and True or False)
+		self.out("Webapp responsive :", self.ping().isSuccess())
 
 # EOF - vim: tw=80 ts=4 sw=4 noet
