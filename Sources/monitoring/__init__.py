@@ -46,9 +46,9 @@ def config(variable, default, normalize=lambda _:_):
 def cat(path,default=""):
 	"""Outputs the content of the file at the given path"""
 	try:
-		with file(path, 'r') as f:
+		with open(path, 'r') as f:
 			d = f.read()
-	except Exception,e:
+	except Exception as e:
 		d = default
 	return d
 
@@ -56,7 +56,7 @@ def count(path):
 	"""Count the number of files and directories at the given path"""
 	try:
 		return len(os.listdir(path))
-	except Exception,e:
+	except Exception as e:
 		# We most probably hit a permission denied here
 		return -1
 
@@ -71,7 +71,7 @@ def spawn(cmd, cwd=None):
 	# fork the first time (to make a non-session-leader child process)
 	try:
 		pid = os.fork()
-	except OSError, e:
+	except OSError as e:
 		raise RuntimeError("1st fork failed: %s [%d]" % (e.strerror, e.errno))
 	if pid != 0:
 		# parent (calling) process is all done
@@ -80,7 +80,7 @@ def spawn(cmd, cwd=None):
 	os.setsid()
 	try:
 		pid = os.fork()
-	except OSError, e:
+	except OSError as e:
 		raise RuntimeError("2nd fork failed: %s [%d]" % (e.strerror, e.errno))
 		raise Exception, "%s [%d]" % (e.strerror, e.errno)
 	if pid != 0:
@@ -111,7 +111,7 @@ def spawn(cmd, cwd=None):
 		path_to_executable = args[0]
 		args = args[1:]
 		os.execv(path_to_executable, args)
-	except Exception, e:
+	except Exception as e:
 		# oops, we're cut off from the world, let's just give up
 		os._exit(255)
 
@@ -194,7 +194,7 @@ class Signals:
 				try:
 					signal.signal(getattr(signal, sig), self._shutdown)
 					self.signalsRegistered.append(sig)
-				except Exception, e:
+				except Exception as e:
 					Logger.Err("[!] monitoring.Signals._registerSignals:%s %s\n" % (sig, e))
 
 	def _shutdown(self, *args):
@@ -851,7 +851,7 @@ class Log(Action):
 		if self.stdout:
 			sys.stdout.write(message)
 		if self.path:
-			f = file(self.path, (self.overwrite and 'w') or 'a')
+			f = open(self.path, (self.overwrite and 'w') or 'a')
 			f.write(message)
 			f.flush()
 			f.close()
@@ -1016,7 +1016,7 @@ class XMPP(Action):
 		# FIXME: Add import error, suggest to easy_install pyxmpp
 		try:
 			import xmpp
-		except ImportError, e:
+		except ImportError as e:
 			raise Exception("Package `pyxmpp` is required: easy_install pyxmpp")
 		self.xmpp = xmpp
 		self.recipient = recipient
@@ -1051,7 +1051,7 @@ class XMPP(Action):
 		try:
 			client.send(self.xmpp.protocol.Message(self.recipient, message))
 			client.disconnect()
-		except Exception, e:
+		except Exception as e:
 			Logger.Err("Cannot send XMPP message: " + str(e))
 		return True
 
@@ -1215,11 +1215,11 @@ class HTTP(Rule):
 			conn.request(self.method, self.uri, self.body, self.headers or {})
 			resp = conn.getresponse()
 			res = resp.read()
-		except socket.error, e:
+		except socket.error as e:
 			return Failure("HTTP request socket error: {method} {server}:{port}{uri} {e}".format(
 				method=self.method, server=self.server, port=self.port, uri=self.uri, e=e
 			))
-		except Exception, e:
+		except Exception as e:
 			return Failure("HTTP request failed: {method} {server}:{port}{uri} {e}".format(
 				method=self.method, server=self.server, port=self.port, uri=self.uri, e=e
 			))
@@ -1539,7 +1539,7 @@ class Runner:
 			self.result = self.runable.run(*self.args)
 			if isinstance(self.result, Success) or isinstance(self.result, Failure):
 				self.result.duration = self.duration
-		except Exception, e:
+		except Exception as e:
 			self.result = e
 			Logger.Err("Exception occured in 'run' with: %s %s" % (e, self.runable))
 			Logger.Traceback()
@@ -1548,13 +1548,13 @@ class Runner:
 		try:
 			if self.pool:
 				self.pool.remove(self)
-		except Exception, e:
+		except Exception as e:
 			Logger.Err("Exception occured in 'run/pool' with: %s %s" % (e, self.runable))
 			Logger.Traceback()
 		try:
 			if self._onRunEnded:
 				self._onRunEnded(self)
-		except Exception, e:
+		except Exception as e:
 			Logger.Err("Exception occured in 'run/onRunEnded' with: %s %s" % (e, self.runable))
 			Logger.Traceback()
 
@@ -1652,13 +1652,13 @@ class Monitor:
 	def getRunnerForRule( self, rule, service, iteration ):
 		try:
 			return self._createRunner( rule, service, iteration, self.onRuleEnded )
-		except RunnerStillRunning, e:
+		except RunnerStillRunning as e:
 			if self.iteration - e.runner.iteration < 5:
 				self.logger.err("Previous iteration's rule is still running: %s, you should increase its frequency." % (rule))
 			else:
 				self.logger.err("Previous iteration's rule %s seems to be still stuck after %s iteration." % (rule, e.runner.iteration - self.iteration))
 			return None
-		except RunnerThreadPoolFull, e:
+		except RunnerThreadPoolFull as e:
 			self.logger.err("Cannot create runner for rule: %s (thread pool reached full capacity)" % (rule))
 			return None
 
@@ -1666,13 +1666,13 @@ class Monitor:
 		runner_id = "%s:%s" % (str(rule), str(action))
 		try:
 			return self._createRunner( action, service, iteration, self.onActionEnded, runner_id )
-		except RunnerStillRunning, e:
+		except RunnerStillRunning as e:
 			if self.iteration - e.runner.iteration < 5:
 				self.logger.err("Previous iteration's action is still running: %s.%s, you should increase its frequency." % (rule, str(action)))
 			else:
 				self.logger.err("Previous iteration's action %s.%s seems to be still stuck after %s iteration." % (rule, str(action), e.runner.iteration - self.iteration))
 			return None
-		except RunnerThreadPoolFull, e:
+		except RunnerThreadPoolFull as e:
 			self.logger.err("Cannot create runner for action: %s.%s (thread pool reached full capacity)" % (rule, str(action)))
 			return None
 
@@ -1745,9 +1745,9 @@ FAILURE = Failure()
 
 def command(args):
 	if len(args) != 1:
-		print "Usage: monitoring FILE"
+		print ("Usage: monitoring FILE")
 	else:
-		with file(args[0],"r") as f:
+		with open(args[0],"r") as f:
 			exec f.read()
 
 # EOF - vim: tw=80 ts=4 sw=4 noet

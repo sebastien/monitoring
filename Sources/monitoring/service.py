@@ -10,7 +10,7 @@
 # -----------------------------------------------------------------------------
 
 import os, time, sys, copy, json
-from   monitoring import Tmux, Process
+from   monitoring import Tmux, Process, HTTP
 
 # -----------------------------------------------------------------------------
 #
@@ -55,12 +55,11 @@ class Service(object):
 			if os.path.exists(config_path):
 				with open(config_path) as f:
 					config = json.load(f)
-			else:
-				config = copy.deepcopy(self.CONFIGURATION)
 		elif isinstance(config, str):
 			with open(config_path) as f:
 				config = json.load(f)
-		self.config = config
+		self.config = copy.deepcopy(self.CONFIGURATION)
+		if config: self.config.update(config)
 
 	def out( self, *args ):
 		for a in args:
