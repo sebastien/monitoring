@@ -37,7 +37,7 @@ import httplib, socket, threading, subprocess, glob, traceback
 #    _start_new_thread(self.__bootstrap, ())
 #thread.error: can't start new thread
 
-__version__ = "0.9.9"
+__version__ = "0.9.10"
 
 RE_SPACES  = re.compile("\s+")
 RE_INTEGER = re.compile("\d+")
