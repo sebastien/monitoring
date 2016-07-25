@@ -9,6 +9,8 @@
 # Last mod.         :   09-Apr-2015
 # -----------------------------------------------------------------------------
 
+from __future__ import print_function
+
 import re, sys, os, time, datetime, stat, smtplib, string, json, fnmatch
 import httplib, socket, threading, subprocess, glob, traceback
 
@@ -82,7 +84,6 @@ def spawn(cmd, cwd=None):
 		pid = os.fork()
 	except OSError as e:
 		raise RuntimeError("2nd fork failed: %s [%d]" % (e.strerror, e.errno))
-		raise Exception, "%s [%d]" % (e.strerror, e.errno)
 	if pid != 0:
 		# child process is all done
 		os._exit(0)
@@ -1748,6 +1749,6 @@ def command(args):
 		print ("Usage: monitoring FILE")
 	else:
 		with open(args[0],"r") as f:
-			exec f.read()
+			exec (f.read())
 
 # EOF - vim: tw=80 ts=4 sw=4 noet
