@@ -189,8 +189,15 @@ class Signals:
 		if self.hasSignalModule and not self.signalsRegistered:
 			# Jython does not support all signals, so we only use
 			# the available ones
-			signals = ['SIGINT',  'SIGHUP', 'SIGABRT', 'SIGQUIT', 'SIGTERM']
+			quiting_signals = ['SIGINT',  'SIGHUP', 'SIGABRT', 'SIGQUIT', 'SIGTERM']
 			import signal
+			signals = []
+			for sig in quiting_signals:
+				sig_action = signal.getsignal(getattr(signal, sig))
+				if sig_action == signal.SIG_DFL:
+					signals.append(sig)
+			# print ("signals:", signals)
+
 			for sig in signals:
 				try:
 					signal.signal(getattr(signal, sig), self._shutdown)
