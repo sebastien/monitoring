@@ -37,7 +37,7 @@ import httplib, socket, threading, subprocess, glob, traceback
 #    _start_new_thread(self.__bootstrap, ())
 #thread.error: can't start new thread
 
-__version__ = "0.9.10"
+__version__ = "0.9.11"
 
 RE_SPACES  = re.compile("\s+")
 RE_INTEGER = re.compile("\d+")
@@ -621,6 +621,13 @@ class Tmux:
 		if not self.GetWindows(session, name):
 			self.Cmd("new-window -t {0} -n {1}".format(session, name))
 		return self
+
+	@classmethod
+	def KillSession( self, session ):
+		if not self.HasSession(session): return False
+		for i,window,is_active in self.ListWindows(session):
+			self.KillWindow(session, window)
+		return True
 
 	@classmethod
 	def KillWindow( self, session, name ):
