@@ -2,7 +2,7 @@
 # Encoding: utf-8
 # See: <http://docs.python.org/distutils/introduction.html>
 from distutils.core import setup
-VERSION = eval(filter(lambda _:_.startswith("__version__"), file("Sources/monitoring/__init__.py").readlines())[0].split("=")[1])
+VERSION = eval(filter(lambda _:_.startswith("__version__"), file("src/monitoring/__init__.py").readlines())[0].split("=")[1])
 setup(
 	name             = "monitoring",
 	version          = VERSION,
@@ -13,7 +13,7 @@ setup(
 	download_url     = "https://github.com/sebastien/monitoring/tarball/%s" % (VERSION),
 	keywords         = ["daemon", "services", "monitoring", "administration"],
 	install_requires = [],
-	package_dir      = {"":"Sources"},
+	package_dir      = {"":"src"},
 	packages         = ["monitoring", "monitoring.rules", "monitoring.actions"],
 	scripts          = ["Scripts/monitoring"],
     license          = "License :: OSI Approved :: BSD License",

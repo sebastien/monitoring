@@ -11,8 +11,12 @@
 
 from __future__ import print_function
 
-import re, sys, os, time, datetime, stat, smtplib, string, json, fnmatch
-import httplib, socket, threading, subprocess, glob, traceback
+import re, sys, os, time, datetime, stat, smtplib, string, json, fnmatch, types
+import socket, threading, subprocess, glob, traceback
+try:
+	import httplib
+except ImportError as e:
+	import http as httplib
 
 # TODO: Add System health metrics (CPU%, MEM%, DISK%, I/O, INODES)
 
@@ -126,9 +130,9 @@ def popen(command, cwd=None, check=False, detach=False):
 		status   = cmd.wait()
 		res, err = cmd.communicate()
 		if status == 0:
-			return res
+			return res.decode("utf8")
 		else:
-			return (status, err)
+			return (status, err.decode("utf8"))
 
 def timestamp():
 	"""Returns the current timestamp as an ISO-8601 time
@@ -206,7 +210,6 @@ class Signals:
 			except:
 				pass
 		sys.exit()
-
 
 # -----------------------------------------------------------------------------
 #
@@ -304,12 +307,12 @@ class Logger:
 		self.stream.flush()
 		self.lock.release()
 
-
 # -----------------------------------------------------------------------------
 #
 # PROCESS INFORMATION
 #
 # -----------------------------------------------------------------------------
+
 class Process:
 	"""A collection of utilities to manipulate and interact with running
 	processes."""
@@ -510,7 +513,7 @@ class System:
 		return usage
 
 	@classmethod
-	def GetInterfaceStats(cls):
+	def NetStats(cls):
 		# $/proc/net$ sudo cat dev
 		# Inter-|   Receive                                                |  Transmit
 		#  face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
@@ -700,11 +703,15 @@ class Size:
 	"""Converts the given value in the given units to bytes"""
 
 	@classmethod
-	def MB(cls, v):
-		return cls.kB(v * 1024)
+	def GB(cls, v):
+		return cls.MB(v * 1024)
 
 	@classmethod
-	def kB(cls, v):
+	def MB(cls, v):
+		return cls.KB(v * 1024)
+
+	@classmethod
+	def KB(cls, v):
 		return cls.B(v * 1024)
 
 	@classmethod
@@ -833,20 +840,29 @@ class Action:
 class Log(Action):
 	"""Logs results to the given path."""
 
-	def __init__(self, path=None, stdout=True, overwrite=False):
+	def __init__(self, message=None, path=None, stdout=True, overwrite=False, rotate=None, limit=None):
 		Action.__init__(self)
-		self.path = path
-		self.stdout = stdout
+		self.path      = path
+		self.stdout    = stdout
 		self.overwrite = overwrite
+		self.rotation  = rotate
+		self.sizeLimit = limit
+		self.message   = message
 
 	def preamble(self, monitor, service, rule, runner):
 		return "%s %s[%d]" % (timestamp(), service and service.name, runner.iteration)
 
+	def getMessage( self ):
+		message = self.message
+		if type(self.message) == types.LambdaType:
+			message = message()
+		return message
+
 	def successMessage(self, monitor, service, rule, runner):
-		return "%s --- %s succeeded (in %0.2fms)" % (self.preamble(monitor, service, rule, runner), runner.runable, runner.duration)
+		return self.getMessage() or "%s --- %s succeeded (in %0.2fms)" % (self.preamble(monitor, service, rule, runner), runner.runable, runner.duration)
 
 	def failureMessage(self, monitor, service, rule, runner):
-		return "%s [!] %s of %s (in %0.2fms)" % (self.preamble(monitor, service, rule, runner), runner.result, runner.runable, runner.duration)
+		return self.getMessage() or "%s [!] %s of %s (in %0.2fms)" % (self.preamble(monitor, service, rule, runner), runner.result, runner.runable, runner.duration)
 
 	def run(self, monitor, service, rule, runner):
 		if runner.hasFailed():
@@ -863,37 +879,47 @@ class Log(Action):
 			f.write(message)
 			f.flush()
 			f.close()
+			self.rotate(path)
 		return True
+
+	def rotate(self, path):
+		limit = self.max or 0
+		if os.path.exists(path):
+			size = os.stat(path)[stat.ST_SIZE]
+			if limit>0 and size > limit:
+				# TODO: We should instead rotate or remove data from the
+				# log
+				os.unlink(path)
+				return None
+			else:
+				return path
+		else:
+			return None
 
 	def __call__(self, message):
 		self.log(message)
 
-
 class Print(Log):
 
 	def __init__(self, message, path=None, stdout=True, overwrite=False):
-		Log.__init__(self, path, stdout, overwrite)
-		self.message = message
+		Log.__init__(self, message, path, stdout, overwrite)
 
 	def run(self, monitor, service, rule, runner):
-		self.log(self.message + "\n")
-
+		self.log(self.getMessage() + "\n")
 
 class LogResult(Log):
 
 	def __init__(self, message, path=None, stdout=True, extract=lambda r, _: r, overwrite=False):
-		Log.__init__(self, path, stdout, overwrite)
-		self.message = message
+		Log.__init__(self, message, path, stdout, overwrite)
 		self.extractor = extract
 
 	def successMessage(self, monitor, service, rule, runner):
 		return "%s %s %s" % (self.preamble(monitor, service, rule, runner), self.message, self.extractor(runner.result.value, runner))
 
-
 class LogMonitoringStatus(Log):
 
 	def __init__(self, path=None, stdout=True, overwrite=False):
-		Log.__init__(self, path, stdout, overwrite)
+		Log.__init__(self, None, path, stdout, overwrite)
 
 	def successMessage(self, monitor, service, rule, runner):
 		return "%s %s" % (self.preamble(monitor, service, rule, runner), monitor.getStatusMessage())
@@ -1091,7 +1117,6 @@ class Incident(Action):
 				# FIXME: Should clone the runner and return the result
 				action.run(monitor, service, rule, runner)
 
-
 class ZMQPublish(Action):
 	"""Publishes a value through ZeroMQ, making it available for other ZeroMQ
 	clients to subscribe"""
@@ -1161,12 +1186,15 @@ class Rule:
 		self.fail    = fail
 		self.success = success
 
+	def getFrequency( self ):
+		return self.freq
+
 	def shouldRunIn(self):
 		if self.lastRun == 0:
 			return 0
 		else:
 			since_last_run = now() - self.lastRun
-			return self.freq - since_last_run
+			return self.getFrequency() - since_last_run
 
 	def touch(self):
 		self.lastRun = now()
@@ -1181,6 +1209,20 @@ class Rule:
 		else:
 			return "<%s %s>" % (self.__class__.__name__, self.id)
 
+
+class CompositeRule( Rule ):
+
+	def __init__(self, rule, freq, fail=(), success=()):
+		Rule.__init__(self, freq, fail, success)
+		self.rule = rule
+
+	def getFrequency( self ):
+		if (self.freq or 0) > 0:
+			return self.freq
+		elif self.rule:
+			return self.rule.getFrequency()
+		else:
+			return 0
 
 class HTTP(Rule):
 
@@ -1334,13 +1376,14 @@ class Bandwidth(Rule):
 		self.interface = interface
 
 	def run(self):
-		res = System.GetInterfaceStats()
+		res = System.NetStats()
 		if res.get(self.interface):
 			return Success(res[self.interface])
 		else:
 			return Failure("Cannot find data for interface: %s" % (self.interface))
 
 
+# TODO
 class Mem(Rule):
 
 	def __init__(self, max, freq=Time.m(1), fail=(), success=()):
@@ -1353,15 +1396,14 @@ class Mem(Rule):
 		return Success()
 
 	def __repr__(self):
-		return "Mem(max=Size.b(%s), freq.Time.ms(%s))" % (self.max, self.freq)
+		return "Mem(max=Size.b(%s), freq.Time.ms(%s))" % (self.max, self.getFrequency())
 
-
-class Delta(Rule):
+class Delta(CompositeRule):
 	"""Executes a rule and extracts a numerical value out of it, successfully returning
 	when at least two values have been extracted from the given rule."""
 
-	def __init__(self, rule, extract=lambda res: res, fail=(), success=()):
-		Rule.__init__(self, rule.freq, fail, success)
+	def __init__(self, rule, extract=lambda res: res, freq=None, fail=(), success=()):
+		CompositeRule.__init__(self, rule, freq, fail, success)
 		self.extractor = extract
 		self.rule = rule
 		self.previous = None
@@ -1372,7 +1414,7 @@ class Delta(Rule):
 			value = self.extractor(res.value)
 			if self.previous is None:
 				self.previous = value
-				return Failure("Not enough history yet")
+				return Success(0)
 			else:
 				delta = value - self.previous
 				self.previous = value
@@ -1380,6 +1422,20 @@ class Delta(Rule):
 		else:
 			return res
 
+
+class Condition( CompositeRule ):
+
+	def __init__(self, rule, test=lambda res: res, freq=None, fail=(), success=()):
+		CompositeRule.__init__(self, rule, freq, fail, success)
+		self.predicate = test
+		self.rule = rule
+
+	def run(self):
+		res = self.rule.run()
+		if self.predicate(res):
+			return Success(res)
+		else:
+			return Failure(res)
 
 class Succeed(Rule):
 
@@ -1389,12 +1445,10 @@ class Succeed(Rule):
 	def run(self):
 		return Success()
 
-
 class Always(Succeed):
 
 	def __init__(self, freq, actions=()):
 		Succeed.__init__(self, freq, actions)
-
 
 class Fail(Rule):
 
@@ -1417,15 +1471,25 @@ class Service:
 
 	# FIXME: Add a check() method that checks that actions exists for rules
 
-	def __init__(self, name=None, monitor=(), actions={}):
+	def __init__(self, name=None, monitor=(), actions={}, every=None):
 		self.name    = name
 		self.rules   = []
 		self.runners = {}
 		self.actions = {}
+		self.freq    = None
 		if not (type(monitor) in (tuple, list)):
 			monitor = tuple([monitor])
 		map(self.addRule, monitor)
 		self.actions.update(actions)
+		self.every(every)
+
+	def getFrequency( self ):
+		return self.freq
+
+	def every( self, freq ):
+		assert (freq or 0) >= 0, "Freq expected to be >=0, got {0}".format(freq)
+		self.freq = freq or 0
+		return self
 
 	def addRule(self, rule):
 		self.rules.append(rule)
@@ -1591,6 +1655,19 @@ class Monitor:
 		self.reactions             = {}
 		map(self.addService, services)
 
+	def every( self, freq ):
+		assert freq >= 0
+		self.freq = freq
+		return self
+
+	def getFrequency( self ):
+		f = self.freq
+		for _ in self.services:
+			g = _.getFrequency()
+			if g != 0:
+				f = min(f, g) if f>=0 else g
+		return f
+
 	def on( self, **reactions ):
 		for event, callback in reactions.items():
 			self.onEvent(event, callback)
@@ -1639,7 +1716,7 @@ class Monitor:
 							rule.touch()
 							runner.run()
 						next_run = min(
-							now() + rule.freq,
+							now() + rule.getFrequency(),
 							next_run
 						)
 			# We've reached the end of an iteration

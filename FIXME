@@ -1,0 +1,12 @@
+Trying to start /opt/apps/artnet/env.sh /opt/apps/artnet/artnet-workqueue
+2013-04-18T11:29:41 [!] Exception occured in 'run' with: Failed running command: tmux new-window -t artnet:2 -n workqueue, exception: (1, 'create window failed: index in use: 2\n') <TmuxRun 0>
+2013-04-18T11:29:41     Traceback (most recent call last):
+2013-04-18T11:29:41       File "/opt/lib/python/watchdog.py", line 1447, in _run
+2013-04-18T11:29:41         self.result = self.runable.run(*self.args)
+2013-04-18T11:29:41       File "/opt/lib/python/watchdog.py", line 826, in run
+2013-04-18T11:29:41         self.tmux.EnsureWindow (self.session, self.window)
+2013-04-18T11:29:41       File "/opt/lib/python/watchdog.py", line 572, in EnsureWindow
+2013-04-18T11:29:41         self.Run("new-window -t {0}:{1} -n {2}".format(session, len(windows), name))
+2013-04-18T11:29:41       File "/opt/lib/python/watchdog.py", line 549, in Run
+2013-04-18T11:29:41         raise Exception("Failed running command: {0}, exception: {1}".format(cmd, res))
+2013-04-18T11:29:41 [!] Exception: Failed running command: tmux new-window -t artnet:2 -n workqueue, exception: (1, 'create window failed: index in use: 2\n')
