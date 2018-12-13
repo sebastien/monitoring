@@ -91,7 +91,7 @@ class Service(object):
 # -----------------------------------------------------------------------------
 
 class TmuxService(Service):
-	"""Creates long-running processed running within a dedicated Tmux
+	"""Creates long-running process running within a dedicated Tmux
 	session. This allows to interactively query/manipulate
 	processes within a tmux shell."""
 

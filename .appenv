@@ -1,0 +1,7 @@
+#!/usr/bin/bash
+appenv_name     monitoring
+appenv_declare  MONITORING   "$(dirname "$(readlink -f "$APPENV_FILE")")"
+appenv_prepend  PATH         "$MONITORING/bin"
+appenv_prepend  PYTHONPATH   "$MONITORING/src"
+# EOF
+
