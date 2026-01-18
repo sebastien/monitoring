@@ -11,11 +11,26 @@
 
 from __future__ import print_function
 
-import re, sys, os, time, datetime, stat, smtplib, string, json, fnmatch, types
-import socket, threading, subprocess, glob, traceback
+import re
+import sys
+import os
+import time
+import datetime
+import stat
+import smtplib
+import string
+import json
+import fnmatch
+import types
+import socket
+import threading
+import subprocess
+import glob
+import traceback
+
 try:
 	import httplib
-except ImportError as e:
+except ImportError:
 	import http as httplib
 
 # TODO: Add System health metrics (CPU%, MEM%, DISK%, I/O, INODES)
@@ -39,40 +54,44 @@ except ImportError as e:
 #    self._thread.start()
 #  File "/usr/lib/python2.6/threading.py", line 474, in start
 #    _start_new_thread(self.__bootstrap, ())
-#thread.error: can't start new thread
+# thread.error: can't start new thread
 
 __version__ = "0.9.11"
 
-RE_SPACES  = re.compile("\s+")
+RE_SPACES = re.compile("\s+")
 RE_INTEGER = re.compile("\d+")
 
-def config(variable, default, normalize=lambda _:_):
-	return normalize(os.environ.get(variable.upper().replace(".","_")) or default)
 
-def cat(path,default=""):
+def config(variable, default, normalize=lambda _: _):
+	return normalize(os.environ.get(variable.upper().replace(".", "_")) or default)
+
+
+def cat(path, default=""):
 	"""Outputs the content of the file at the given path"""
 	try:
-		with open(path, 'r') as f:
+		with open(path, "r") as f:
 			d = f.read()
-	except Exception as e:
+	except Exception:
 		d = default
 	return d
+
 
 def count(path):
 	"""Count the number of files and directories at the given path"""
 	try:
 		return len(os.listdir(path))
-	except Exception as e:
+	except Exception:
 		# We most probably hit a permission denied here
 		return -1
+
 
 def now():
 	"""Returns the current time in milliseconds"""
 	return time.time() * 1000
 
+
 def spawn(cmd, cwd=None):
-	"""Spawn a completely detached subprocess (i.e., a daemon).
-	"""
+	"""Spawn a completely detached subprocess (i.e., a daemon)."""
 	# FROM: http://stackoverflow.com/questions/972362/spawning-process-from-python
 	# fork the first time (to make a non-session-leader child process)
 	try:
@@ -100,25 +119,26 @@ def spawn(cmd, cwd=None):
 	for fd in range(maxfd):
 		try:
 			os.close(fd)
-		except OSError: # ERROR, fd wasn't open to begin with (ignored)
+		except OSError:  # ERROR, fd wasn't open to begin with (ignored)
 			pass
 	# redirect stdin, stdout and stderr to /dev/null
-	if (hasattr(os, "devnull")):
+	if hasattr(os, "devnull"):
 		REDIRECT_TO = os.devnull
 	else:
 		REDIRECT_TO = "/dev/null"
-	os.open(REDIRECT_TO, os.O_RDWR) # standard input (0)
+	os.open(REDIRECT_TO, os.O_RDWR)  # standard input (0)
 	os.dup2(0, 1)
 	os.dup2(0, 2)
 	# and finally let's execute the executable for the daemon!
 	try:
-		args = filter(lambda _:_, map(lambda _:_.strip(), cmd.split(" ")))
+		args = filter(lambda _: _, map(lambda _: _.strip(), cmd.split(" ")))
 		path_to_executable = args[0]
 		args = args[1:]
 		os.execv(path_to_executable, args)
-	except Exception as e:
+	except Exception:
 		# oops, we're cut off from the world, let's just give up
 		os._exit(255)
+
 
 def popen(command, cwd=None, check=False, detach=False):
 	"""Returns the stdout from the given command, using the subproces
@@ -126,27 +146,41 @@ def popen(command, cwd=None, check=False, detach=False):
 	if detach:
 		return spawn(command, cwd)
 	else:
-		cmd      = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd)
-		status   = cmd.wait()
+		cmd = subprocess.Popen(
+			command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd
+		)
+		status = cmd.wait()
 		res, err = cmd.communicate()
 		if status == 0:
 			return res.decode("utf8")
 		else:
 			return (status, err.decode("utf8"))
 
+
 def timestamp():
 	"""Returns the current timestamp as an ISO-8601 time
 	("1977-04-22T01:00:00-05:00")"""
 	n = datetime.datetime.now()
 	return "%04d-%02d-%02dT%02d:%02d:%02d" % (
-		n.year, n.month, n.day, n.hour, n.minute, n.second
+		n.year,
+		n.month,
+		n.day,
+		n.hour,
+		n.minute,
+		n.second,
 	)
+
 
 def timenum():
 	"""Like timestamp, but just the numbers."""
 	n = datetime.datetime.now()
 	return "%04d%02d%02d%02d%02d%02d" % (
-		n.year, n.month, n.day, n.hour, n.minute, n.second
+		n.year,
+		n.month,
+		n.day,
+		n.hour,
+		n.minute,
+		n.second,
 	)
 
 
@@ -155,6 +189,7 @@ def timenum():
 # SIGNAL HANDLING
 #
 # -----------------------------------------------------------------------------
+
 
 class Signals:
 	"""Takes care of registering/unregistering signals so that shutdown
@@ -175,7 +210,9 @@ class Signals:
 		SIGINT/SIGHUP/SIGABRT/SIQUITE/SIGTERM."""
 		if cls.SINGLETON is None:
 			cls.SINGLETON = Signals()
-		assert not cls.SINGLETON.signalsRegistered, "OnShutdown must be called before Setup."
+		assert not cls.SINGLETON.signalsRegistered, (
+			"OnShutdown must be called before Setup."
+		)
 		cls.SINGLETON.onShutdown.append(callback)
 
 	def __init__(self):
@@ -183,6 +220,7 @@ class Signals:
 		self.onShutdown = []
 		try:
 			import signal
+
 			self.hasSignalModule = True
 		except:
 			self.hasSignalModule = False
@@ -193,14 +231,17 @@ class Signals:
 		if self.hasSignalModule and not self.signalsRegistered:
 			# Jython does not support all signals, so we only use
 			# the available ones
-			signals = ['SIGINT',  'SIGHUP', 'SIGABRT', 'SIGQUIT', 'SIGTERM']
+			signals = ["SIGINT", "SIGHUP", "SIGABRT", "SIGQUIT", "SIGTERM"]
 			import signal
+
 			for sig in signals:
 				try:
 					signal.signal(getattr(signal, sig), self._shutdown)
 					self.signalsRegistered.append(sig)
 				except Exception as e:
-					Logger.Err("[!] monitoring.Signals._registerSignals:%s %s\n" % (sig, e))
+					Logger.Err(
+						"[!] monitoring.Signals._registerSignals:%s %s\n" % (sig, e)
+					)
 
 	def _shutdown(self, *args):
 		"""Safely executes the callbacks registered in self.onShutdown."""
@@ -211,13 +252,13 @@ class Signals:
 				pass
 		sys.exit()
 
+
 # -----------------------------------------------------------------------------
 #
 # LOGGER
 #
 # -----------------------------------------------------------------------------
 class Logger:
-
 	SINGLETON = None
 
 	@classmethod
@@ -271,9 +312,9 @@ class Logger:
 	def debug(self, *message):
 		self("   ", *message)
 
-	def traceback( self ):
+	def traceback(self):
 		exception = traceback.format_exc()
-		lines     = exception.split("\n")[:-1]
+		lines = exception.split("\n")[:-1]
 		for i in range(len(lines)):
 			if i == len(lines) - 1:
 				self.err(lines[i])
@@ -301,11 +342,10 @@ class Logger:
 	def __call__(self, prefix, *message):
 		self.lock.acquire()
 		message = " ".join(map(str, message))
-		self.stream.write("%s %s%s %s\n" % (
-			timestamp(), self.prefix, prefix, message
-		))
+		self.stream.write("%s %s%s %s\n" % (timestamp(), self.prefix, prefix, message))
 		self.stream.flush()
 		self.lock.release()
+
 
 # -----------------------------------------------------------------------------
 #
@@ -313,27 +353,46 @@ class Logger:
 #
 # -----------------------------------------------------------------------------
 
+
 class Process:
 	"""A collection of utilities to manipulate and interact with running
 	processes."""
+
 	# See <http://linux.die.net/man/5/proc>
 
-	RE_PID       = re.compile("^\d+$")
-	RE_PS_OUTPUT = re.compile("^%s$" % ("\s+".join([
-		"[^.]+",  "(\d+)", "(\d+)", "\d+", "\d+", "\d+", "\d+", "[^ ]+", "[^ ]+", "\d\d\:\d\d\:\d\d", "(.+)"
-	])))
+	RE_PID = re.compile("^\d+$")
+	RE_PS_OUTPUT = re.compile(
+		"^%s$"
+		% (
+			"\s+".join(
+				[
+					"[^.]+",
+					"(\d+)",
+					"(\d+)",
+					"\d+",
+					"\d+",
+					"\d+",
+					"\d+",
+					"[^ ]+",
+					"[^ ]+",
+					"\d\d\:\d\d\:\d\d",
+					"(.+)",
+				]
+			)
+		)
+	)
 
 	@classmethod
-	def FindLike( cls, command, strict=True ):
+	def FindLike(cls, command, strict=True):
 		if strict:
-			predicate = lambda a,b: a in b
+			predicate = lambda a, b: a in b
 		else:
-			predicate = lambda a,b: a.lower() in b.lower()
+			predicate = lambda a, b: a.lower() in b.lower()
 		return cls.Find(command, predicate)
 
 	@classmethod
 	def Find(cls, command, compare=(lambda a, b: a == b)):
-		command = command.replace("\"","").replace("'","")
+		command = command.replace('"', "").replace("'", "")
 		# Note: we skip the header and the trailing EOL
 		for pid, cmd in cls.List().items():
 			if cmd:
@@ -342,14 +401,14 @@ class Process:
 		return None
 
 	@classmethod
-	def Children( cls, pid ):
+	def Children(cls, pid):
 		"""Returns the list of processes that have the given `pid` as `ppid`"""
 		res = []
 		pid = int(pid)
 		for cpid, cmd in cls.List().items():
 			ppid = int(cls.Status(cpid)["ppid"])
 			if ppid == pid:
-				res.append( (cpid, None, cmd))
+				res.append((cpid, None, cmd))
 		return res
 
 	@classmethod
@@ -410,10 +469,7 @@ class Process:
 		proc_pid = "/proc/%d" % (pid)
 		if not os.path.exists(proc_pid):
 			dict(
-				pid=pid,
-				exists=False,
-				probeStart=cls.firstProbe,
-				probeEnd=cls.lastProbe
+				pid=pid, exists=False, probeStart=cls.firstProbe, probeEnd=cls.lastProbe
 			)
 		else:
 			status = Process.Status(pid)
@@ -431,7 +487,7 @@ class Process:
 				fdsize=status["fdsize"],
 				vmsize=status["vmsize"],
 				started=started,
-				running=running
+				running=running,
 			)
 
 
@@ -440,6 +496,7 @@ class Process:
 # SYSTEM
 #
 # -----------------------------------------------------------------------------
+
 
 class System:
 	"""A collection of utilities to interact with system information"""
@@ -462,7 +519,9 @@ class System:
 		"""Returns the memory usage (between 0.0 and 1.0) on this system, which
 		is total memory - free memory - cached memory."""
 		meminfo = cls.MemoryInfo()
-		return (meminfo["MemTotal"] - meminfo["MemFree"] - meminfo["Cached"]) / float(meminfo["MemTotal"])
+		return (meminfo["MemTotal"] - meminfo["MemFree"] - meminfo["Cached"]) / float(
+			meminfo["MemTotal"]
+		)
 
 	@classmethod
 	def DiskUsage(cls):
@@ -525,35 +584,47 @@ class System:
 		for line in cat("/proc/net/dev").split("\n")[2:-1]:
 			interface, stats = RE_SPACES.sub(" ", line).strip().split(":", 1)
 			stats = map(long, stats.strip().split(" "))
-			rx_bytes, rx_pack, rx_errs, rx_drop, rx_fifo, rx_frame, rx_compr, rx_multicast, \
-			tx_bytes, tx_pack, tx_errs, tx_drop, tx_fifo, tx_colls, tx_carrier, tx_compressed = stats
+			(
+				rx_bytes,
+				rx_pack,
+				rx_errs,
+				rx_drop,
+				rx_fifo,
+				rx_frame,
+				rx_compr,
+				rx_multicast,
+				tx_bytes,
+				tx_pack,
+				tx_errs,
+				tx_drop,
+				tx_fifo,
+				tx_colls,
+				tx_carrier,
+				tx_compressed,
+			) = stats
 			res[interface] = {
 				"rx": dict(
-					bytes=rx_bytes,
-					packets=rx_pack,
-					errors=rx_errs,
-					drop=rx_drop
+					bytes=rx_bytes, packets=rx_pack, errors=rx_errs, drop=rx_drop
 				),
 				"tx": dict(
-					bytes=tx_bytes,
-					packets=tx_pack,
-					errors=tx_errs,
-					drop=tx_drop
+					bytes=tx_bytes, packets=tx_pack, errors=tx_errs, drop=tx_drop
 				),
 				"total": dict(
 					bytes=tx_bytes + rx_bytes,
 					packets=tx_pack + rx_pack,
 					errors=tx_errs + rx_errs,
-					drop=tx_drop + rx_drop
-				)
+					drop=tx_drop + rx_drop,
+				),
 			}
 		return res
+
 
 # -----------------------------------------------------------------------------
 #
 # TMUX
 #
 # -----------------------------------------------------------------------------
+
 
 class Tmux:
 	"""A simple wrapper around the `tmux`  terminal multiplexer that allows to
@@ -563,7 +634,7 @@ class Tmux:
 	but still want easy access to their detailed output/interact with them."""
 
 	@classmethod
-	def Cmd( self, params ):
+	def Cmd(self, params):
 		cmd = "tmux " + params
 		res = popen(cmd)
 		if isinstance(res, tuple):
@@ -571,16 +642,25 @@ class Tmux:
 				# there's not tmux session running so we just return nothing
 				return ""
 			else:
-				raise Exception("Failed running command: {0}, exception: {1}".format(cmd, res))
+				raise Exception(
+					"Failed running command: {0}, exception: {1}".format(cmd, res)
+				)
 		else:
 			return res
 
 	@classmethod
-	def ListSessions( self ):
-		return [_ for _ in map(lambda _:_.split(":",1)[0].strip(), self.Cmd("list-session").split("\n")) if _]
+	def ListSessions(self):
+		return [
+			_
+			for _ in map(
+				lambda _: _.split(":", 1)[0].strip(),
+				self.Cmd("list-session").split("\n"),
+			)
+			if _
+		]
 
 	@classmethod
-	def EnsureSession( self, session ):
+	def EnsureSession(self, session):
 		try:
 			sessions = self.ListSessions()
 		except:
@@ -590,79 +670,87 @@ class Tmux:
 		return self
 
 	@classmethod
-	def HasSession( self, session ):
+	def HasSession(self, session):
 		return session in self.ListSessions()
 
 	@classmethod
-	def ListWindows( self, session ):
-		if not self.HasSession(session): return []
-		windows = filter(lambda _:_, self.Cmd("list-windows -t" + session).split("\n"))
-		res     = []
+	def ListWindows(self, session):
+		if not self.HasSession(session):
+			return []
+		windows = filter(lambda _: _, self.Cmd("list-windows -t" + session).split("\n"))
+		res = []
 		# OUTPUT is like:
 		# 1: ONE- (1 panes) [122x45] [layout bffe,122x45,0,0,1] @1
 		# 2: ONE* (1 panes) [122x45] [layout bfff,122x45,0,0,2] @2 (active)
 		for window in windows:
-			index, name = window.split(":",1)
-			name        = name.split("(",1)[0].split("[")[0].strip()
-			if name[-1] in "*-": name = name[:-1]
-			res.append( ( int(index), name, window.endswith("(active)") ))
+			index, name = window.split(":", 1)
+			name = name.split("(", 1)[0].split("[")[0].strip()
+			if name[-1] in "*-":
+				name = name[:-1]
+			res.append((int(index), name, window.endswith("(active)")))
 		return res
 
 	@classmethod
-	def GetWindows( self, session, name ):
-		if not self.HasSession(session): return []
-		return ([_ for _ in self.ListWindows(session) if _[1] == name or _[0] == name])
+	def GetWindows(self, session, name):
+		if not self.HasSession(session):
+			return []
+		return [_ for _ in self.ListWindows(session) if _[1] == name or _[0] == name]
 
 	@classmethod
-	def HasWindow( self, session, name ):
-		if not self.HasSession(session): return False
+	def HasWindow(self, session, name):
+		if not self.HasSession(session):
+			return False
 		return self.GetWindows(session, name) and True or False
 
 	@classmethod
-	def EnsureWindow( self, session, name ):
+	def EnsureWindow(self, session, name):
 		self.EnsureSession(session)
 		if not self.GetWindows(session, name):
 			self.Cmd("new-window -t {0} -n {1}".format(session, name))
 		return self
 
 	@classmethod
-	def KillSession( self, session ):
-		if not self.HasSession(session): return False
-		for i,window,is_active in self.ListWindows(session):
+	def KillSession(self, session):
+		if not self.HasSession(session):
+			return False
+		for i, window, is_active in self.ListWindows(session):
 			self.KillWindow(session, window)
 		return True
 
 	@classmethod
-	def KillWindow( self, session, name ):
-		if not self.HasSession(session): return False
-		for i,window,is_active in self.GetWindows(session, name):
+	def KillWindow(self, session, name):
+		if not self.HasSession(session):
+			return False
+		for i, window, is_active in self.GetWindows(session, name):
 			self.Cmd("kill-window -t {0}:{1}".format(session, i))
 		return True
 
 	@classmethod
-	def Read( self, session, name ):
-		return self.Cmd("capture-pane -t {0}:{1} \\; save-buffer -".format(session, name))
+	def Read(self, session, name):
+		return self.Cmd(
+			"capture-pane -t {0}:{1} \\; save-buffer -".format(session, name)
+		)
 
 	@classmethod
-	def Write( self, session, name, commands):
+	def Write(self, session, name, commands):
 		self.Cmd("send-keys -t {0}:{1} {2}".format(session, name, repr(commands)))
 		self.Cmd("send-keys -t {0}:{1} C-m".format(session, name))
 
 	@classmethod
-	def CtrlC( self, session, name):
+	def CtrlC(self, session, name):
 		self.Cmd("send-keys -t {0}:{1} C-c".format(session, name))
 
 	@classmethod
-	def Run( self, session, name, command, timeout=10, resolution=0.5):
+	def Run(self, session, name, command, timeout=10, resolution=0.5):
 		"""This function allows to run a command and retrieve its output
 		as given by the shell. It is quite error prone, as it will include
 		your prompt styling and will only poll the output at `resolution` seconds
 		interval."""
 		self.EnsureWindow(session, name)
-		delimiter    = "CMD_" + timenum()
+		delimiter = "CMD_" + timenum()
 		delimier_cmd = "echo " + delimiter
-		output       = None
-		found        = False
+		output = None
+		found = False
 		self.Write(session, name, command + ";" + delimier_cmd)
 		for i in range(int(timeout / resolution)):
 			output = self.Read(session, name)
@@ -677,7 +765,7 @@ class Tmux:
 		return output.rsplit(delimiter, 2)[-2].split("\n", 1)[-1] if found else None
 
 	@classmethod
-	def IsResponsive( cls, session, window, timeout=1, resolution=0.1 ):
+	def IsResponsive(cls, session, window, timeout=1, resolution=0.1):
 		is_responsive = False
 		if cls.HasSession(session) and cls.HasWindow(session, window):
 			# Is the terminal responsive?
@@ -693,11 +781,13 @@ class Tmux:
 					break
 		return is_responsive
 
+
 # -----------------------------------------------------------------------------
 #
 # UNITS
 #
 # -----------------------------------------------------------------------------
+
 
 class Size:
 	"""Converts the given value in the given units to bytes"""
@@ -717,6 +807,7 @@ class Size:
 	@classmethod
 	def B(cls, v):
 		return v
+
 
 class Time:
 	"""Converts the given time in the given units to milliseconds"""
@@ -745,16 +836,18 @@ class Time:
 	def ms(cls, t):
 		return t
 
+
 # -----------------------------------------------------------------------------
 #
 # RESULTS ENCAPSULATION
 #
 # -----------------------------------------------------------------------------
 
-class Result:
 
+class Result:
 	def __init__(self):
 		pass
+
 
 class Success(Result):
 	"""Represents the success of a Rule."""
@@ -765,10 +858,10 @@ class Success(Result):
 		self.value = value
 		self.duration = None
 
-	def isSuccess( self ):
+	def isSuccess(self):
 		return True
 
-	def isFailure( self ):
+	def isFailure(self):
 		return False
 
 	def __str__(self):
@@ -787,10 +880,10 @@ class Failure(Result):
 		self.value = value
 		self.duration = None
 
-	def isSuccess( self ):
+	def isSuccess(self):
 		return False
 
-	def isFailure( self ):
+	def isFailure(self):
 		return True
 
 	def __str__(self):
@@ -806,63 +899,82 @@ class Failure(Result):
 #
 # -----------------------------------------------------------------------------
 
+
 class Action:
 	"""Represents actions that can be triggered on rule sucess or failure."""
 
 	COUNT = 0
 
 	def __init__(self):
-		self.name  = None
-		self.id    = self.COUNT
+		self.name = None
+		self.id = self.COUNT
 		self.COUNT += 1
 
-	def info( self, *message ):
+	def info(self, *message):
 		Logger.I().info(*message)
 
-	def err( self, *message ):
+	def err(self, *message):
 		Logger.I().err(*message)
 
-	def debug( self, *message ):
+	def debug(self, *message):
 		Logger.I().debug(*message)
 
-	def warn( self, *message ):
+	def warn(self, *message):
 		Logger.I().warn(*message)
 
 	def run(self, monitor, service, rule, runner):
 		pass
 
-	def __str__( self ):
+	def __str__(self):
 		if self.name:
-			return "<%s@%s %s>"% (self.__class__.__name__, self.name, self.id)
+			return "<%s@%s %s>" % (self.__class__.__name__, self.name, self.id)
 		else:
 			return "<%s %s>" % (self.__class__.__name__, self.id)
+
 
 class Log(Action):
 	"""Logs results to the given path."""
 
-	def __init__(self, message=None, path=None, stdout=True, overwrite=False, rotate=None, limit=None):
+	def __init__(
+		self,
+		message=None,
+		path=None,
+		stdout=True,
+		overwrite=False,
+		rotate=None,
+		limit=None,
+	):
 		Action.__init__(self)
-		self.path      = path
-		self.stdout    = stdout
+		self.path = path
+		self.stdout = stdout
 		self.overwrite = overwrite
-		self.rotation  = rotate
+		self.rotation = rotate
 		self.sizeLimit = limit
-		self.message   = message
+		self.message = message
 
 	def preamble(self, monitor, service, rule, runner):
 		return "%s %s[%d]" % (timestamp(), service and service.name, runner.iteration)
 
-	def getMessage( self ):
+	def getMessage(self):
 		message = self.message
 		if type(self.message) == types.LambdaType:
 			message = message()
 		return message
 
 	def successMessage(self, monitor, service, rule, runner):
-		return self.getMessage() or "%s --- %s succeeded (in %0.2fms)" % (self.preamble(monitor, service, rule, runner), runner.runable, runner.duration)
+		return self.getMessage() or "%s --- %s succeeded (in %0.2fms)" % (
+			self.preamble(monitor, service, rule, runner),
+			runner.runable,
+			runner.duration,
+		)
 
 	def failureMessage(self, monitor, service, rule, runner):
-		return self.getMessage() or "%s [!] %s of %s (in %0.2fms)" % (self.preamble(monitor, service, rule, runner), runner.result, runner.runable, runner.duration)
+		return self.getMessage() or "%s [!] %s of %s (in %0.2fms)" % (
+			self.preamble(monitor, service, rule, runner),
+			runner.result,
+			runner.runable,
+			runner.duration,
+		)
 
 	def run(self, monitor, service, rule, runner):
 		if runner.hasFailed():
@@ -875,7 +987,7 @@ class Log(Action):
 		if self.stdout:
 			sys.stdout.write(message)
 		if self.path:
-			f = open(self.path, (self.overwrite and 'w') or 'a')
+			f = open(self.path, (self.overwrite and "w") or "a")
 			f.write(message)
 			f.flush()
 			f.close()
@@ -886,7 +998,7 @@ class Log(Action):
 		limit = self.max or 0
 		if os.path.exists(path):
 			size = os.stat(path)[stat.ST_SIZE]
-			if limit>0 and size > limit:
+			if limit > 0 and size > limit:
 				# TODO: We should instead rotate or remove data from the
 				# log
 				os.unlink(path)
@@ -899,33 +1011,42 @@ class Log(Action):
 	def __call__(self, message):
 		self.log(message)
 
-class Print(Log):
 
+class Print(Log):
 	def __init__(self, message, path=None, stdout=True, overwrite=False):
 		Log.__init__(self, message, path, stdout, overwrite)
 
 	def run(self, monitor, service, rule, runner):
 		self.log(self.getMessage() + "\n")
 
-class LogResult(Log):
 
-	def __init__(self, message, path=None, stdout=True, extract=lambda r, _: r, overwrite=False):
+class LogResult(Log):
+	def __init__(
+		self, message, path=None, stdout=True, extract=lambda r, _: r, overwrite=False
+	):
 		Log.__init__(self, message, path, stdout, overwrite)
 		self.extractor = extract
 
 	def successMessage(self, monitor, service, rule, runner):
-		return "%s %s %s" % (self.preamble(monitor, service, rule, runner), self.message, self.extractor(runner.result.value, runner))
+		return "%s %s %s" % (
+			self.preamble(monitor, service, rule, runner),
+			self.message,
+			self.extractor(runner.result.value, runner),
+		)
+
 
 class LogMonitoringStatus(Log):
-
 	def __init__(self, path=None, stdout=True, overwrite=False):
 		Log.__init__(self, None, path, stdout, overwrite)
 
 	def successMessage(self, monitor, service, rule, runner):
-		return "%s %s" % (self.preamble(monitor, service, rule, runner), monitor.getStatusMessage())
+		return "%s %s" % (
+			self.preamble(monitor, service, rule, runner),
+			monitor.getStatusMessage(),
+		)
+
 
 class Run(Action):
-
 	def __init__(self, command, cwd=None, detach=False):
 		Action.__init__(self)
 		self.command = command
@@ -941,28 +1062,32 @@ class Run(Action):
 			Logger.Output("Run:", self.command, ":", res)
 			return True
 
+
 class TmuxRun(Action):
 	"""An action that executes the given command in a tmux window with
 	the given name and session."""
 
-	def __init__( self, session, window, command, cwd="." ):
+	def __init__(self, session, window, command, cwd="."):
 		Action.__init__(self)
 		self.session = session
-		self.window  = window
+		self.window = window
 		self.command = command
-		self.cwd     = cwd
-		self.tmux    = Tmux
+		self.cwd = cwd
+		self.tmux = Tmux
 
 	def run(self, monitor=None, service=None, rule=None, runner=None):
 		self.tmux.EnsureSession(self.session)
-		self.tmux.EnsureWindow (self.session, self.window)
+		self.tmux.EnsureWindow(self.session, self.window)
 		if not self.tmux.IsResponsive(self.session, self.window):
 			# If the terminal is not responsive, we simply kill then window
 			# and restart it
 			self.tmux.KillWindow(self.session, self.window)
 			self.tmux.EnsureWindow(self.session, self.window)
 		# We're now safe to start the command
-		self.tmux.Write(self.session, self.window, "cd {0} ; {1}".format(self.cwd, self.command))
+		self.tmux.Write(
+			self.session, self.window, "cd {0} ; {1}".format(self.cwd, self.command)
+		)
+
 
 class Restart(Action):
 	"""Restarts the process with the given command, killing the process if it
@@ -1002,7 +1127,9 @@ class Email(Action):
 	|--
 	""".replace("\t|", "")
 
-	def __init__(self, recipient, subject, message, host, user=None, password=None, origin=None):
+	def __init__(
+		self, recipient, subject, message, host, user=None, password=None, origin=None
+	):
 		Action.__init__(self)
 		self.recipient = recipient
 		self.subject = subject
@@ -1016,19 +1143,27 @@ class Email(Action):
 		if self.send(monitor, service, rule, runner):
 			Logger.Info("Email sent to %s (#%s)" % (self.recipient, monitor.iteration))
 		else:
-			Logger.Err("Could not send email to %s (#%s)" % (self.recipient, monitor.iteration))
+			Logger.Err(
+				"Could not send email to %s (#%s)" % (self.recipient, monitor.iteration)
+			)
+
 	def send(self, monitor=None, service=None, rule=None, runner=None):
 		server = smtplib.SMTP(self.host)
-		origin = self.origin or "<Monitoring for %s> monitoring@%s" % (service and service.name, popen("hostname")[:-1])
-		message = string.Template(self.MESSAGE).safe_substitute({
-			"from": origin,
-			"to": self.recipient,
-			"subject": self.subject,
-			"message": self.message,
-			"result": runner and runner.result,
-			"timestamp": timestamp(),
-			"iteration": monitor and monitor.iteration or 0
-		})
+		origin = self.origin or "<Monitoring for %s> monitoring@%s" % (
+			service and service.name,
+			popen("hostname")[:-1],
+		)
+		message = string.Template(self.MESSAGE).safe_substitute(
+			{
+				"from": origin,
+				"to": self.recipient,
+				"subject": self.subject,
+				"message": self.message,
+				"result": runner and runner.result,
+				"timestamp": timestamp(),
+				"iteration": monitor and monitor.iteration or 0,
+			}
+		)
 		server.ehlo()
 		server.starttls()
 		server.ehlo()
@@ -1050,7 +1185,7 @@ class XMPP(Action):
 		# FIXME: Add import error, suggest to easy_install pyxmpp
 		try:
 			import xmpp
-		except ImportError as e:
+		except ImportError:
 			raise Exception("Package `pyxmpp` is required: easy_install pyxmpp")
 		self.xmpp = xmpp
 		self.recipient = recipient
@@ -1060,9 +1195,14 @@ class XMPP(Action):
 
 	def run(self, monitor, service, rule, runner):
 		if self.send(monitor, service, rule, runner):
-			Logger.Info("XMPP message sent to %s (#%s)" % (self.recipient, monitor.iteration))
+			Logger.Info(
+				"XMPP message sent to %s (#%s)" % (self.recipient, monitor.iteration)
+			)
 		else:
-			Logger.Err("Could not send XMPP message to %s (#%s)" % (self.recipient, monitor.iteration))
+			Logger.Err(
+				"Could not send XMPP message to %s (#%s)"
+				% (self.recipient, monitor.iteration)
+			)
 
 	def send(self, monitor=None, service=None, rule=None, runner=None):
 		jid = self.xmpp.protocol.JID(self.user)
@@ -1075,13 +1215,15 @@ class XMPP(Action):
 		if not auth:
 			Logger.Err("Cannot authenticate to XMPP account (name=%s)" % (self.user))
 			return False
-		message = string.Template(self.message).safe_substitute({
-			"to": self.recipient,
-			"service": service and service.name,
-			"result": runner and runner.result,
-			"timestamp": timestamp(),
-			"iteration": monitor and monitor.iteration or 0
-		})
+		message = string.Template(self.message).safe_substitute(
+			{
+				"to": self.recipient,
+				"service": service and service.name,
+				"result": runner and runner.result,
+				"timestamp": timestamp(),
+				"iteration": monitor and monitor.iteration or 0,
+			}
+		)
 		try:
 			client.send(self.xmpp.protocol.Message(self.recipient, message))
 			client.disconnect()
@@ -1096,7 +1238,7 @@ class Incident(Action):
 
 	def __init__(self, actions, errors=5, during=30 * 1000):
 		Action.__init__(self)
-		if not (type(actions) in (tuple, list)):
+		if type(actions) not in (tuple, list):
 			actions = tuple([actions])
 		self.actions = actions
 		self.errors = errors
@@ -1117,6 +1259,7 @@ class Incident(Action):
 				# FIXME: Should clone the runner and return the result
 				action.run(monitor, service, rule, runner)
 
+
 class ZMQPublish(Action):
 	"""Publishes a value through ZeroMQ, making it available for other ZeroMQ
 	clients to subscribe"""
@@ -1127,6 +1270,7 @@ class ZMQPublish(Action):
 	@classmethod
 	def getZMQContext(cls):
 		import zmq
+
 		if cls.ZMQ_CONTEXT is None:
 			cls.ZMQ_CONTEXT = zmq.Context()
 		return cls.ZMQ_CONTEXT
@@ -1135,6 +1279,7 @@ class ZMQPublish(Action):
 	def getZMQSocket(cls, url):
 		if url not in cls.ZMQ_SOCKETS.keys():
 			import zmq
+
 			cls.ZMQ_SOCKETS[url] = cls.getZMQContext().socket(zmq.PUB)
 			cls.ZMQ_SOCKETS[url].bind(url)
 		return cls.ZMQ_SOCKETS[url]
@@ -1150,7 +1295,10 @@ class ZMQPublish(Action):
 
 	def send(self, runner):
 		# FIXME: I think this is a blocking operation
-		message = "%s:application/json:%s" % (self.name, json.dumps(self.extractor(runner.result.value, runner)))
+		message = "%s:application/json:%s" % (
+			self.name,
+			json.dumps(self.extractor(runner.result.value, runner)),
+		)
 		# NOTE: ZMQ PUB is asynchronous, ZMQ DOWNSTREAM is not !
 		self.socket.send(message)
 		return message
@@ -1165,6 +1313,7 @@ class ZMQPublish(Action):
 #
 # -----------------------------------------------------------------------------
 
+
 class Rule:
 	"""Rules return either a Sucess or Failure when run, and take actions
 	as 'fail' or 'success' arguments, which will be triggered by the
@@ -1175,18 +1324,18 @@ class Rule:
 	def __init__(self, freq, fail=(), success=()):
 		self.id = Rule.COUNT
 		# Ensures that the given data is given as a list
-		if not (type(fail) in (tuple, list)):
+		if type(fail) not in (tuple, list):
 			fail = tuple([fail])
-		if not (type(success) in (tuple, list)):
+		if type(success) not in (tuple, list):
 			success = tuple([success])
-		Rule.COUNT  += 1
+		Rule.COUNT += 1
 		self.lastRun = 0
-		self.name    = None
-		self.freq    = freq
-		self.fail    = fail
+		self.name = None
+		self.freq = freq
+		self.fail = fail
 		self.success = success
 
-	def getFrequency( self ):
+	def getFrequency(self):
 		return self.freq
 
 	def shouldRunIn(self):
@@ -1203,20 +1352,19 @@ class Rule:
 		self.touch()
 		return Success()
 
-	def __str__( self ):
+	def __str__(self):
 		if self.name:
-			return "<%s@%s %s>"% (self.__class__.__name__, self.name, self.id)
+			return "<%s@%s %s>" % (self.__class__.__name__, self.name, self.id)
 		else:
 			return "<%s %s>" % (self.__class__.__name__, self.id)
 
 
-class CompositeRule( Rule ):
-
+class CompositeRule(Rule):
 	def __init__(self, rule, freq, fail=(), success=()):
 		Rule.__init__(self, freq, fail, success)
 		self.rule = rule
 
-	def getFrequency( self ):
+	def getFrequency(self):
 		if (self.freq or 0) > 0:
 			return self.freq
 		elif self.rule:
@@ -1224,13 +1372,22 @@ class CompositeRule( Rule ):
 		else:
 			return 0
 
-class HTTP(Rule):
 
-	def __init__(self, GET=None, POST=None, HEAD=None, timeout=Time.s(10), freq=Time.m(1), fail=(), success=()):
+class HTTP(Rule):
+	def __init__(
+		self,
+		GET=None,
+		POST=None,
+		HEAD=None,
+		timeout=Time.s(10),
+		freq=Time.m(1),
+		fail=(),
+		success=(),
+	):
 		Rule.__init__(self, freq, fail, success)
 		url = None
 		# TODO: Implement protocol (HTTP/HTTPS)
-		#method = None
+		# method = None
 		if GET:
 			method = "GET"
 			url = GET
@@ -1242,7 +1399,7 @@ class HTTP(Rule):
 			url = HEAD
 		if url.startswith("http://"):
 			url = url[7:]
-		server, uri = url.split("/",  1)
+		server, uri = url.split("/", 1)
 		if not uri.startswith("/"):
 			uri = "/" + uri
 		if server.find(":") >= 0:
@@ -1266,28 +1423,54 @@ class HTTP(Rule):
 			resp = conn.getresponse()
 			res = resp.read()
 		except socket.error as e:
-			return Failure("HTTP request socket error: {method} {server}:{port}{uri} {e}".format(
-				method=self.method, server=self.server, port=self.port, uri=self.uri, e=e
-			))
+			return Failure(
+				"HTTP request socket error: {method} {server}:{port}{uri} {e}".format(
+					method=self.method,
+					server=self.server,
+					port=self.port,
+					uri=self.uri,
+					e=e,
+				)
+			)
 		except Exception as e:
-			return Failure("HTTP request failed: {method} {server}:{port}{uri} {e}".format(
-				method=self.method, server=self.server, port=self.port, uri=self.uri, e=e
-			))
+			return Failure(
+				"HTTP request failed: {method} {server}:{port}{uri} {e}".format(
+					method=self.method,
+					server=self.server,
+					port=self.port,
+					uri=self.uri,
+					e=e,
+				)
+			)
 		if resp.status >= 400:
-			return Failure("HTTP request failed with status {status}: {method} {server}:{port}{uri}".format(
-				method=self.method, server=self.server, port=self.port, uri=self.uri, status=resp.status
-			))
+			return Failure(
+				"HTTP request failed with status {status}: {method} {server}:{port}{uri}".format(
+					method=self.method,
+					server=self.server,
+					port=self.port,
+					uri=self.uri,
+					status=resp.status,
+				)
+			)
 		else:
 			return Success(res)
 
 	def __repr__(self):
-		return "HTTP(%s=\"%s:%s%s\",timeout=%s)" % (self.method, self.server, self.port, self.uri, self.timeout)
+		return 'HTTP(%s="%s:%s%s",timeout=%s)' % (
+			self.method,
+			self.server,
+			self.port,
+			self.uri,
+			self.timeout,
+		)
 
 
 class SystemHealth(Rule):
 	"""Defines thresholds for key system health stats."""
 
-	def __init__(self, freq=Time.s(1), cpu=0.90, disk=0.90, mem=0.90, fail=(), success=()):
+	def __init__(
+		self, freq=Time.s(1), cpu=0.90, disk=0.90, mem=0.90, fail=(), success=()
+	):
 		"""Monitors the system health with the following thresholds:
 
 		- 'cpu'  (0.90 by default)
@@ -1310,9 +1493,9 @@ class SystemHealth(Rule):
 
 		"""
 		errors = {}
-		values  = {}
-		cpu  = System.CPUUsage()
-		mem  = System.MemoryUsage()
+		values = {}
+		cpu = System.CPUUsage()
+		mem = System.MemoryUsage()
 		disk = System.DiskUsage()
 		if cpu > self.cpu:
 			errors["cpu"] = (cpu, self.cpu)
@@ -1328,11 +1511,15 @@ class SystemHealth(Rule):
 				errors["disk"][mount] = (usage, self.disk)
 			else:
 				values.setdefault("disk", {})
-				values["disk"][mount] = (usage, self,disk)
+				values["disk"][mount] = (usage, self, disk)
 		if errors:
-			return Failure("errors with %s" % (", ".join(errors.keys())), value=dict(values=values, errors=errors))
+			return Failure(
+				"errors with %s" % (", ".join(errors.keys())),
+				value=dict(values=values, errors=errors),
+			)
 		else:
 			return Success(value=dict(values=values))
+
 
 class ProcessInfo(Rule):
 	"""Returns statistics about the process with the given command, the rule
@@ -1356,16 +1543,17 @@ class ProcessInfo(Rule):
 
 
 class SystemInfo(Rule):
-
 	def __init__(self, freq, fail=(), success=()):
 		Rule.__init__(self, freq, fail, success)
 
 	def run(self):
-		return Success(dict(
-			memoryUsage=System.MemoryUsage(),
-			diskUsage=System.DiskUsage(),
-			cpuUsage=System.CPUUsage(),
-		))
+		return Success(
+			dict(
+				memoryUsage=System.MemoryUsage(),
+				diskUsage=System.DiskUsage(),
+				cpuUsage=System.CPUUsage(),
+			)
+		)
 
 
 class Bandwidth(Rule):
@@ -1385,7 +1573,6 @@ class Bandwidth(Rule):
 
 # TODO
 class Mem(Rule):
-
 	def __init__(self, max, freq=Time.m(1), fail=(), success=()):
 		Rule.__init__(self, freq, fail, success)
 		self.max = max
@@ -1397,6 +1584,7 @@ class Mem(Rule):
 
 	def __repr__(self):
 		return "Mem(max=Size.b(%s), freq.Time.ms(%s))" % (self.max, self.getFrequency())
+
 
 class Delta(CompositeRule):
 	"""Executes a rule and extracts a numerical value out of it, successfully returning
@@ -1423,8 +1611,7 @@ class Delta(CompositeRule):
 			return res
 
 
-class Condition( CompositeRule ):
-
+class Condition(CompositeRule):
 	def __init__(self, rule, test=lambda res: res, freq=None, fail=(), success=()):
 		CompositeRule.__init__(self, rule, freq, fail, success)
 		self.predicate = test
@@ -1437,21 +1624,21 @@ class Condition( CompositeRule ):
 		else:
 			return Failure(res)
 
-class Succeed(Rule):
 
+class Succeed(Rule):
 	def __init__(self, freq, actions=()):
 		Rule.__init__(self, freq, fail=(), success=actions)
 
 	def run(self):
 		return Success()
 
-class Always(Succeed):
 
+class Always(Succeed):
 	def __init__(self, freq, actions=()):
 		Succeed.__init__(self, freq, actions)
 
-class Fail(Rule):
 
+class Fail(Rule):
 	def __init__(self, freq, actions=()):
 		Rule.__init__(self, freq, fail=actions, success=())
 
@@ -1465,6 +1652,7 @@ class Fail(Rule):
 #
 # -----------------------------------------------------------------------------
 
+
 class Service:
 	"""A service is a collection of rules and actions. Rules are executed
 	and actions are triggered according to the rules result."""
@@ -1472,21 +1660,21 @@ class Service:
 	# FIXME: Add a check() method that checks that actions exists for rules
 
 	def __init__(self, name=None, monitor=(), actions={}, every=None):
-		self.name    = name
-		self.rules   = []
+		self.name = name
+		self.rules = []
 		self.runners = {}
 		self.actions = {}
-		self.freq    = None
-		if not (type(monitor) in (tuple, list)):
+		self.freq = None
+		if type(monitor) not in (tuple, list):
 			monitor = tuple([monitor])
 		map(self.addRule, monitor)
 		self.actions.update(actions)
 		self.every(every)
 
-	def getFrequency( self ):
+	def getFrequency(self):
 		return self.freq
 
-	def every( self, freq ):
+	def every(self, freq):
 		assert (freq or 0) >= 0, "Freq expected to be >=0, got {0}".format(freq)
 		self.freq = freq or 0
 		return self
@@ -1501,11 +1689,13 @@ class Service:
 		else:
 			return self.actions[nameOrAction]
 
+
 # -----------------------------------------------------------------------------
 #
 # RUNNER POOL
 #
 # -----------------------------------------------------------------------------
+
 
 class Pool:
 	"""Pools are used in Monitoring to limit the number of runners/rules executed
@@ -1516,7 +1706,7 @@ class Pool:
 		self.capacity = capacity
 		self.elements = []
 
-	def setCapacity( self, capacity ):
+	def setCapacity(self, capacity):
 		self.capacity = capacity
 		return self
 
@@ -1537,22 +1727,25 @@ class Pool:
 	def size(self):
 		return len(self.elements)
 
+
 # -----------------------------------------------------------------------------
 #
 # RUNNER
 #
 # -----------------------------------------------------------------------------
 
-class RunnerStillRunning(Exception):
 
+class RunnerStillRunning(Exception):
 	def __init__(self, runner):
 		Exception.__init__(self, "Runner is still running: " + str(runner))
 		self.runner = runner
 
-class RunnerThreadPoolFull(Exception):
 
+class RunnerThreadPoolFull(Exception):
 	def __init__(self, capacity):
-		Exception.__init__(self, "Runner thread pool has reached full capacity (%s)" % (capacity))
+		Exception.__init__(
+			self, "Runner thread pool has reached full capacity (%s)" % (capacity)
+		)
 		self.capacity = capacity
 
 
@@ -1573,24 +1766,24 @@ class Runner:
 
 	def __init__(self, runable, context=None, iteration=None, pool=None, id=None):
 		assert isinstance(runable, Action) or isinstance(runable, Rule)
-		self._onRunEnded  = None
-		self.runable      = runable
-		self.context      = context
-		self.result       = None
-		self.iteration    = iteration
+		self._onRunEnded = None
+		self.runable = runable
+		self.context = context
+		self.result = None
+		self.iteration = iteration
 		self.creationTime = now()
-		self.startTime    = -1
-		self.endTime      = -1
-		self.duration     = 0
-		self.pool         = pool
-		self.id           = id
-		self._thread      = threading.Thread(target=self._run)
+		self.startTime = -1
+		self.endTime = -1
+		self.duration = 0
+		self.pool = pool
+		self.id = id
+		self._thread = threading.Thread(target=self._run)
 		# We want the threads to be "daemonic", ie. they will all stop once
 		# the main monitoring stops.
 		# SEE: http://docs.python.org/release/2.5.2/lib/thread-objects.html
 		self._thread.setDaemon(True)
 
-	def getID( self ):
+	def getID(self):
 		return self.id
 
 	def onRunEnded(self, callback):
@@ -1615,19 +1808,23 @@ class Runner:
 			self.result = e
 			Logger.Err("Exception occured in 'run' with: %s %s" % (e, self.runable))
 			Logger.Traceback()
-		self.endTime  = now()
+		self.endTime = now()
 		self.duration = self.endTime - self.startTime
 		try:
 			if self.pool:
 				self.pool.remove(self)
 		except Exception as e:
-			Logger.Err("Exception occured in 'run/pool' with: %s %s" % (e, self.runable))
+			Logger.Err(
+				"Exception occured in 'run/pool' with: %s %s" % (e, self.runable)
+			)
 			Logger.Traceback()
 		try:
 			if self._onRunEnded:
 				self._onRunEnded(self)
 		except Exception as e:
-			Logger.Err("Exception occured in 'run/onRunEnded' with: %s %s" % (e, self.runable))
+			Logger.Err(
+				"Exception occured in 'run/onRunEnded' with: %s %s" % (e, self.runable)
+			)
 			Logger.Traceback()
 
 
@@ -1637,6 +1834,7 @@ class Runner:
 #
 # -----------------------------------------------------------------------------
 
+
 class Monitor:
 	"""The monitor is at the core of the Monitoring. Rules declared in registered
 	services are run, and actions are executed according to the result."""
@@ -1645,40 +1843,41 @@ class Monitor:
 
 	def __init__(self, *services):
 		"""Creats a new monitor with the  given services."""
-		self.services              = []
-		self.isRunning             = False
-		self.freq                  = self.FREQUENCY
-		self.logger                = Logger(prefix="monitoring ")
-		self.iteration             = 0
+		self.services = []
+		self.isRunning = False
+		self.freq = self.FREQUENCY
+		self.logger = Logger(prefix="monitoring ")
+		self.iteration = 0
 		self.iterationLastDuration = 0
-		self.runners               = {}
-		self.reactions             = {}
+		self.runners = {}
+		self.reactions = {}
 		map(self.addService, services)
 
-	def every( self, freq ):
+	def every(self, freq):
 		assert freq >= 0
 		self.freq = freq
 		return self
 
-	def getFrequency( self ):
+	def getFrequency(self):
 		f = self.freq
 		for _ in self.services:
 			g = _.getFrequency()
 			if g != 0:
-				f = min(f, g) if f>=0 else g
+				f = min(f, g) if f >= 0 else g
 		return f
 
-	def on( self, **reactions ):
+	def on(self, **reactions):
 		for event, callback in reactions.items():
 			self.onEvent(event, callback)
 		return self
 
-	def onEvent( self, name, callback ):
+	def onEvent(self, name, callback):
 		callbacks = self.reactions.setdefault(name, [])
-		if callback not in callbacks: callbacks.append(callback)
+		if callback not in callbacks:
+			callbacks.append(callback)
 
-	def trigger( self, name ):
-		for callback in self.reactions.get(name,[]):
+	def trigger(self, name):
+		for callback in self.reactions.get(name, []):
 			callback()
 
 	def addService(self, service):
@@ -1691,7 +1890,7 @@ class Monitor:
 		If `iterations` is `-1` then the monitor will run indefinitely."""
 		Signals.Setup()
 		self.isRunning = True
-		for event in (events or []):
+		for event in events or []:
 			self.trigger(event)
 		while self.isRunning:
 			it_start = now()
@@ -1715,15 +1914,12 @@ class Monitor:
 						if runner:
 							rule.touch()
 							runner.run()
-						next_run = min(
-							now() + rule.getFrequency(),
-							next_run
-						)
+						next_run = min(now() + rule.getFrequency(), next_run)
 			# We've reached the end of an iteration
-			duration                   = now() - it_start
+			duration = now() - it_start
 			self.iterationLastDuration = duration
 			self.logger.info(self.getStatusMessage())
-			self.iteration             += 1
+			self.iteration += 1
 			# Sleeps waiting for the next run
 			sleep_time = max(0, next_run - now())
 			if sleep_time > 0:
@@ -1734,64 +1930,91 @@ class Monitor:
 			if iterations > 0 and self.iteration >= iterations:
 				self.isRunning = False
 
-	def getRunnerForRule( self, rule, service, iteration ):
+	def getRunnerForRule(self, rule, service, iteration):
 		try:
-			return self._createRunner( rule, service, iteration, self.onRuleEnded )
+			return self._createRunner(rule, service, iteration, self.onRuleEnded)
 		except RunnerStillRunning as e:
 			if self.iteration - e.runner.iteration < 5:
-				self.logger.err("Previous iteration's rule is still running: %s, you should increase its frequency." % (rule))
+				self.logger.err(
+					"Previous iteration's rule is still running: %s, you should increase its frequency."
+					% (rule)
+				)
 			else:
-				self.logger.err("Previous iteration's rule %s seems to be still stuck after %s iteration." % (rule, e.runner.iteration - self.iteration))
+				self.logger.err(
+					"Previous iteration's rule %s seems to be still stuck after %s iteration."
+					% (rule, e.runner.iteration - self.iteration)
+				)
 			return None
-		except RunnerThreadPoolFull as e:
-			self.logger.err("Cannot create runner for rule: %s (thread pool reached full capacity)" % (rule))
+		except RunnerThreadPoolFull:
+			self.logger.err(
+				"Cannot create runner for rule: %s (thread pool reached full capacity)"
+				% (rule)
+			)
 			return None
 
-	def getRunnerForAction( self, rule, action, service, iteration ):
+	def getRunnerForAction(self, rule, action, service, iteration):
 		runner_id = "%s:%s" % (str(rule), str(action))
 		try:
-			return self._createRunner( action, service, iteration, self.onActionEnded, runner_id )
+			return self._createRunner(
+				action, service, iteration, self.onActionEnded, runner_id
+			)
 		except RunnerStillRunning as e:
 			if self.iteration - e.runner.iteration < 5:
-				self.logger.err("Previous iteration's action is still running: %s.%s, you should increase its frequency." % (rule, str(action)))
+				self.logger.err(
+					"Previous iteration's action is still running: %s.%s, you should increase its frequency."
+					% (rule, str(action))
+				)
 			else:
-				self.logger.err("Previous iteration's action %s.%s seems to be still stuck after %s iteration." % (rule, str(action), e.runner.iteration - self.iteration))
+				self.logger.err(
+					"Previous iteration's action %s.%s seems to be still stuck after %s iteration."
+					% (rule, str(action), e.runner.iteration - self.iteration)
+				)
 			return None
-		except RunnerThreadPoolFull as e:
-			self.logger.err("Cannot create runner for action: %s.%s (thread pool reached full capacity)" % (rule, str(action)))
+		except RunnerThreadPoolFull:
+			self.logger.err(
+				"Cannot create runner for action: %s.%s (thread pool reached full capacity)"
+				% (rule, str(action))
+			)
 			return None
 
 	def onRuleEnded(self, runner):
 		"""Callback bound to 'Runner.onRunEnded', trigerred once a rule was executed.
 		If the rule failed, actions will be executed."""
-		rule      = runner.runable
-		service   = runner.context
+		rule = runner.runable
+		service = runner.context
 		iteration = runner.iteration
 		if isinstance(runner.result, Success):
 			if rule.success:
 				for action in rule.success:
 					action_object = service.getAction(action)
-					action_runner = self.getRunnerForAction(rule, action_object, service, self.iteration)
+					action_runner = self.getRunnerForAction(
+						rule, action_object, service, self.iteration
+					)
 					if action_runner:
 						action_runner.run(self, service, rule, runner)
 		elif isinstance(runner.result, Failure):
 			self.logger.err("Failure on ", rule, ":", runner.result)
 			if rule.fail:
-				#self.logger.info("Failure actions:", ", ".join(rule.fail))
+				# self.logger.info("Failure actions:", ", ".join(rule.fail))
 				for action in rule.fail:
 					action_object = service.getAction(action)
-					action_runner = self.getRunnerForAction(rule, action_object, service, self.iteration)
+					action_runner = self.getRunnerForAction(
+						rule, action_object, service, self.iteration
+					)
 					if action_runner:
 						action_runner.run(self, service, rule, runner)
 			else:
-				#self.logger.info("No failure action to trigger")
+				# self.logger.info("No failure action to trigger")
 				pass
 		else:
-			self.logger.err("Rule did not return Success or Failure instance: %s, got %s" % (rule, runner.result))
+			self.logger.err(
+				"Rule did not return Success or Failure instance: %s, got %s"
+				% (rule, runner.result)
+			)
 		# We unregister the runnner
 		del self.runners[runner.getID()]
 
-	def onActionEnded( self, runner ):
+	def onActionEnded(self, runner):
 		# We unregister the runnner
 		del self.runners[runner.getID()]
 
@@ -1808,7 +2031,9 @@ class Monitor:
 			runner = self.runners[runable_id]
 			raise RunnerStillRunning(runner)
 		else:
-			runner = Runner.Create(runable, context=context, iteration=iteration, id=runable_id)
+			runner = Runner.Create(
+				runable, context=context, iteration=iteration, id=runable_id
+			)
 			if runner:
 				self.runners[runner.getID()] = runner
 				runner.onRunEnded(callback)
@@ -1817,7 +2042,13 @@ class Monitor:
 				raise RunnerThreadPoolFull(Runner.POOL.capacity)
 
 	def getStatusMessage(self):
-		return "#%d (runners=%d,threads=%d,duration=%0.2fs)" % (self.iteration, Runner.POOL.size(), threading.activeCount(), self.iterationLastDuration)
+		return "#%d (runners=%d,threads=%d,duration=%0.2fs)" % (
+			self.iteration,
+			Runner.POOL.size(),
+			threading.activeCount(),
+			self.iterationLastDuration,
+		)
+
 
 # -----------------------------------------------------------------------------
 #
@@ -1828,11 +2059,13 @@ class Monitor:
 SUCCESS = Success()
 FAILURE = Failure()
 
+
 def command(args):
 	if len(args) != 1:
-		print ("Usage: monitoring FILE")
+		print("Usage: monitoring FILE")
 	else:
-		with open(args[0],"r") as f:
-			exec (f.read())
+		with open(args[0], "r") as f:
+			exec(f.read())
+
 
 # EOF - vim: tw=80 ts=4 sw=4 noet

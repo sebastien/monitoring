@@ -1,0 +1,5 @@
+[tool.black]
+line-length = 88
+skip-string-normalization = true
+preview = true
+unstable = true

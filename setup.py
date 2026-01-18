@@ -16,7 +16,7 @@ setup(
 	package_dir      = {"":"src"},
 	packages         = ["monitoring", "monitoring.rules", "monitoring.actions"],
 	scripts          = ["Scripts/monitoring"],
-    license          = "License :: OSI Approved :: BSD License",
+	license          = "License :: OSI Approved :: BSD License",
 	classifiers      = [
 		"Programming Language :: Python",
 		"Development Status :: 3 - Alpha",
