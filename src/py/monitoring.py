@@ -27,9 +27,10 @@ import threading
 import subprocess
 import glob
 import traceback
+import copy
 
 try:
-	import httplib
+	import http.client as httplib
 except ImportError:
 	import http as httplib
 
@@ -58,7 +59,6 @@ except ImportError:
 #  File "/home/sebastien/Projects/Local/lib/python/monitoring.py", line 620, in run
 #    self._thread.start()
 #  File "/usr/lib/python2.6/threading.py", line 474, in start
-#    _start_new_thread(self.__bootstrap, ())
 # thread.error: can't start new thread
 
 __version__ = "0.9.11"
@@ -422,7 +422,8 @@ class Process:
 		for p in glob.glob("/proc/*/cmdline"):
 			process = p.split("/")[2]
 			if cls.RE_PID.match(process):
-				res[int(process)] = cat(p).replace("\x00", " ")
+				cmdline = cat(p).replace("\x00", " ")
+				res[int(process)] = cmdline
 		return res
 
 	@classmethod
@@ -472,9 +473,7 @@ class Process:
 		status = Process.Status(pid)
 		proc_pid = "/proc/%d" % (pid)
 		if not os.path.exists(proc_pid):
-			dict(
-				pid=pid, exists=False, probeStart=cls.firstProbe, probeEnd=cls.lastProbe
-			)
+			return dict(pid=pid, exists=False)
 		else:
 			status = Process.Status(pid)
 			started = os.stat(proc_pid)[stat.ST_MTIME]
@@ -681,7 +680,7 @@ class Tmux:
 	def ListWindows(self, session):
 		if not self.HasSession(session):
 			return []
-		windows = filter(lambda _: _, self.Cmd("list-windows -t" + session).split("\n"))
+		windows = [w for w in self.Cmd("list-windows -t" + session).split("\n") if w]
 		res = []
 		# OUTPUT is like:
 		# 1: ONE- (1 panes) [122x45] [layout bffe,122x45,0,0,1] @1
@@ -689,7 +688,7 @@ class Tmux:
 		for window in windows:
 			index, name = window.split(":", 1)
 			name = name.split("(", 1)[0].split("[")[0].strip()
-			if name[-1] in "*-":
+			if name and name[-1] in "*-":
 				name = name[:-1]
 			res.append((int(index), name, window.endswith("(active)")))
 		return res
@@ -698,7 +697,11 @@ class Tmux:
 	def GetWindows(self, session, name):
 		if not self.HasSession(session):
 			return []
-		return [_ for _ in self.ListWindows(session) if _[1] == name or _[0] == name]
+		return [
+			w
+			for w in self.ListWindows(session)
+			if w[1] == name or str(w[0]) == str(name)
+		]
 
 	@classmethod
 	def HasWindow(self, session, name):
@@ -915,16 +918,16 @@ class Action:
 		self.COUNT += 1
 
 	def info(self, *message):
-		Logger.I().info(*message)
+		Logger.Instance().info(*message)
 
 	def err(self, *message):
-		Logger.I().err(*message)
+		Logger.Instance().err(*message)
 
 	def debug(self, *message):
-		Logger.I().debug(*message)
+		Logger.Instance().debug(*message)
 
 	def warn(self, *message):
-		Logger.I().warn(*message)
+		Logger.Instance().warn(*message)
 
 	def run(self, monitor, service, rule, runner):
 		pass
@@ -999,7 +1002,7 @@ class Log(Action):
 		return True
 
 	def rotate(self, path):
-		limit = self.max or 0
+		limit = self.sizeLimit or 0
 		if os.path.exists(path):
 			size = os.stat(path)[stat.ST_SIZE]
 			if limit > 0 and size > limit:
@@ -1153,9 +1156,14 @@ class Email(Action):
 
 	def send(self, monitor=None, service=None, rule=None, runner=None):
 		server = smtplib.SMTP(self.host)
+		hostname = popen("hostname")
+		if isinstance(hostname, tuple):
+			hostname = hostname[1][:-1] if len(hostname) > 1 else ""
+		else:
+			hostname = hostname[:-1] if hostname else ""
 		origin = self.origin or "<Monitoring for %s> monitoring@%s" % (
 			service and service.name,
-			popen("hostname")[:-1],
+			hostname,
 		)
 		message = string.Template(self.MESSAGE).safe_substitute(
 			{
@@ -1190,6 +1198,8 @@ class XMPP(Action):
 		try:
 			import xmpp
 		except ImportError:
+			xmpp = None
+		if xmpp is None:
 			raise Exception("Package `pyxmpp` is required: easy_install pyxmpp")
 		self.xmpp = xmpp
 		self.recipient = recipient
@@ -1273,20 +1283,26 @@ class ZMQPublish(Action):
 
 	@classmethod
 	def getZMQContext(cls):
-		import zmq
+		try:
+			import zmq
 
-		if cls.ZMQ_CONTEXT is None:
-			cls.ZMQ_CONTEXT = zmq.Context()
-		return cls.ZMQ_CONTEXT
+			if cls.ZMQ_CONTEXT is None:
+				cls.ZMQ_CONTEXT = zmq.Context()
+			return cls.ZMQ_CONTEXT
+		except ImportError:
+			return None
 
 	@classmethod
 	def getZMQSocket(cls, url):
-		if url not in cls.ZMQ_SOCKETS.keys():
+		try:
 			import zmq
 
-			cls.ZMQ_SOCKETS[url] = cls.getZMQContext().socket(zmq.PUB)
-			cls.ZMQ_SOCKETS[url].bind(url)
-		return cls.ZMQ_SOCKETS[url]
+			if url not in cls.ZMQ_SOCKETS.keys():
+				cls.ZMQ_SOCKETS[url] = cls.getZMQContext().socket(zmq.PUB)
+				cls.ZMQ_SOCKETS[url].bind(url)
+			return cls.ZMQ_SOCKETS[url]
+		except ImportError:
+			return None
 
 	def __init__(self, variableName, host="0.0.0.0", port=9009, extract=lambda r, _: r):
 		Action.__init__(self)
@@ -1652,46 +1668,9 @@ class Fail(Rule):
 
 # -----------------------------------------------------------------------------
 #
-# SERVICE
+# RUNNER POOL
 #
 # -----------------------------------------------------------------------------
-
-
-class Service:
-	"""A service is a collection of rules and actions. Rules are executed
-	and actions are triggered according to the rules result."""
-
-	# FIXME: Add a check() method that checks that actions exists for rules
-
-	def __init__(self, name=None, monitor=(), actions={}, every=None):
-		self.name = name
-		self.rules = []
-		self.runners = {}
-		self.actions = {}
-		self.freq = None
-		if type(monitor) not in (tuple, list):
-			monitor = tuple([monitor])
-		map(self.addRule, monitor)
-		self.actions.update(actions)
-		self.every(every)
-
-	def getFrequency(self):
-		return self.freq
-
-	def every(self, freq):
-		assert (freq or 0) >= 0, "Freq expected to be >=0, got {0}".format(freq)
-		self.freq = freq or 0
-		return self
-
-	def addRule(self, rule):
-		self.rules.append(rule)
-
-	def getAction(self, nameOrAction):
-		"""Returns the action object with the given name."""
-		if isinstance(nameOrAction, Action):
-			return nameOrAction
-		else:
-			return self.actions[nameOrAction]
 
 
 # -----------------------------------------------------------------------------
@@ -1929,7 +1908,7 @@ class Monitor:
 			if sleep_time > 0:
 				if sleep_time > 1000:
 					self.logger.info("Sleeping for %0.2fs" % (sleep_time / 1000.0))
-				time.sleep(sleep_time / 1000.0)
+					time.sleep(sleep_time / 1000.0)
 			# In case we've exceeded the number of iterations, we stop the loop
 			if iterations > 0 and self.iteration >= iterations:
 				self.isRunning = False
@@ -1965,110 +1944,286 @@ class Monitor:
 		except RunnerStillRunning as e:
 			if self.iteration - e.runner.iteration < 5:
 				self.logger.err(
-					"Previous iteration's action is still running: %s.%s, you should increase its frequency."
-					% (rule, str(action))
+					"Previous iteration's action is still running: %s, you should increase its frequency."
+					% (action)
 				)
 			else:
 				self.logger.err(
-					"Previous iteration's action %s.%s seems to be still stuck after %s iteration."
-					% (rule, str(action), e.runner.iteration - self.iteration)
+					"Previous iteration's action %s seems to be still stuck after %s iteration."
+					% (action, e.runner.iteration - self.iteration)
 				)
 			return None
 		except RunnerThreadPoolFull:
 			self.logger.err(
-				"Cannot create runner for action: %s.%s (thread pool reached full capacity)"
-				% (rule, str(action))
+				"Cannot create runner for action: %s (thread pool reached full capacity)"
+				% (action)
 			)
 			return None
 
-	def onRuleEnded(self, runner):
-		"""Callback bound to 'Runner.onRunEnded', trigerred once a rule was executed.
-		If the rule failed, actions will be executed."""
-		rule = runner.runable
-		service = runner.context
-		if isinstance(runner.result, Success):
-			if rule.success:
-				for action in rule.success:
-					action_object = service.getAction(action)
-					action_runner = self.getRunnerForAction(
-						rule, action_object, service, self.iteration
-					)
-					if action_runner:
-						action_runner.run(self, service, rule, runner)
-		elif isinstance(runner.result, Failure):
-			self.logger.err("Failure on ", rule, ":", runner.result)
-			if rule.fail:
-				# self.logger.info("Failure actions:", ", ".join(rule.fail))
-				for action in rule.fail:
-					action_object = service.getAction(action)
-					action_runner = self.getRunnerForAction(
-						rule, action_object, service, self.iteration
-					)
-					if action_runner:
-						action_runner.run(self, service, rule, runner)
-			else:
-				# self.logger.info("No failure action to trigger")
-				pass
+	def _createRunner(self, runable, context, iteration, callback, id=None):
+		if id:
+			runner = context.runners.get(id)
+			if runner and runner.hasFailed():
+				raise RunnerStillRunning(runner)
+		if runner:
+			return runner
+		runner = Runner.Create(runable, context, iteration, id)
+		if runner:
+			runner.onRunEnded(callback)
+			if id:
+				context.runners[id] = runner
+			return runner
 		else:
-			self.logger.err(
-				"Rule did not return Success or Failure instance: %s, got %s"
-				% (rule, runner.result)
-			)
-		# We unregister the runnner
-		del self.runners[runner.getID()]
+			raise RunnerThreadPoolFull(Runner.POOL.capacity)
+
+	def onRuleEnded(self, runner):
+		if runner.hasFailed():
+			for action in runner.runable.fail:
+				runner_id = "%s:%s" % (str(runner.runable), str(action))
+				if runner_id in runner.context.runners:
+					# We don't want to run the same action twice
+					continue
+				runner = self.getRunnerForAction(
+					runner.runable, action, runner.context, runner.iteration
+				)
+				if runner:
+					runner.run(runner.context, runner.runable, action, runner)
+		else:
+			for action in runner.runable.success:
+				runner_id = "%s:%s" % (str(runner.runable), str(action))
+				if runner_id in runner.context.runners:
+					# We don't want to run the same action twice
+					continue
+				runner = self.getRunnerForAction(
+					runner.runable, action, runner.context, runner.iteration
+				)
+				if runner:
+					runner.run(runner.context, runner.runable, action, runner)
 
 	def onActionEnded(self, runner):
-		# We unregister the runnner
-		del self.runners[runner.getID()]
-
-	def _createRunner(self, runable, context, iteration, callback, runableId=None):
-		"""Creates a runner for the given runable, making sure that it won't
-		be started twice, raising `RunnerStillRunning`
-		or `RunnerThreadPoolFull` in case of problems."""
-		# FIXME: we should prefix the ID with the Rule name, if any
-		if runableId is None:
-			runable_id = str(runable)
-		else:
-			runable_id = runableId
-		if runable_id in self.runners:
-			runner = self.runners[runable_id]
-			raise RunnerStillRunning(runner)
-		else:
-			runner = Runner.Create(
-				runable, context=context, iteration=iteration, id=runable_id
-			)
-			if runner:
-				self.runners[runner.getID()] = runner
-				runner.onRunEnded(callback)
-				return runner
-			else:
-				raise RunnerThreadPoolFull(Runner.POOL.capacity)
+		pass
 
 	def getStatusMessage(self):
-		return "#%d (runners=%d,threads=%d,duration=%0.2fs)" % (
+		return "Iteration %s (%s rules, %s actions, %s runners)" % (
 			self.iteration,
+			len(self.runners),
+			len(self.reactions),
 			Runner.POOL.size(),
-			threading.activeCount(),
-			self.iterationLastDuration,
 		)
 
 
 # -----------------------------------------------------------------------------
 #
-# GLOBALS
+# SERVICE
 #
 # -----------------------------------------------------------------------------
 
-SUCCESS = Success()
-FAILURE = Failure()
+
+class Service:
+	"""A minimal class to implement services that support start/stop/status
+	directives."""
+
+	Instance = None
+	CONFIGURATION = {}
+
+	@classmethod
+	def Ensure(cls):
+		if not cls.Instance:
+			cls.Instance = cls()
+		return cls.Instance
+
+	@classmethod
+	def Run(cls, *args):
+		if not args or len(args) == 0:
+			args = sys.argv[1:]
+		d = cls.Ensure()
+		args = args or ["start"]
+		directive = args[0]
+		args = args[1:]
+		lines = d.lines
+		if hasattr(d, directive):
+			result = getattr(d, directive)(*args)
+			# If the directive did not output anything, we print its output
+			if d.lines == lines:
+				d.out("{0}: {1}".format(directive, d.format(result)))
+		else:
+			raise Exception(
+				"Directive not found in daemon {1}: {0}".format(directive, d)
+			)
+
+	def __init__(self, config=None):
+		"""Initializes the service with the given `config`uration, which
+		can be a path (string) or a dictionary of values"""
+		self.lines = 0
+		if not config:
+			config_path = self.__class__.__name__.rsplit(".", 1)[-1].lower() + ".json"
+			if os.path.exists(config_path):
+				with open(config_path) as f:
+					config = json.load(f)
+		elif isinstance(config, str):
+			with open(config_path) as f:
+				config = json.load(f)
+		self.config = copy.deepcopy(self.CONFIGURATION)
+		if config:
+			self.config.update(config)
+
+	def out(self, *args):
+		for a in args:
+			sys.stdout.write(str(a))
+		sys.stdout.write("\n")
+		self.lines += 1
+		return self
+
+	def format(self, value):
+		return value
+
+	def start(self):
+		pass
+
+	def stop(self):
+		pass
+
+	def status(self):
+		pass
+
+	def restart(self):
+		self.stop()
+		self.start()
 
 
-def command(args):
-	if len(args) != 1:
-		print("Usage: monitoring FILE")
-	else:
-		with open(args[0], "r") as f:
-			exec(f.read())
+# -----------------------------------------------------------------------------
+#
+# TMUX SERVICE
+#
+# -----------------------------------------------------------------------------
+
+
+class TmuxService(Service):
+	"""Creates long-running process running within a dedicated Tmux
+	session. This allows to interactively query/manipulate
+	processes within a tmux shell."""
+
+	# TODO: Ideally, we would be able to list the PIDs of processes
+	# running within a tmux window, and identify which one is the daemon
+	# in question.
+
+	@classmethod
+	def Has(cls, name):
+		return Tmux.HasSession(name) and Tmux.HasWindow(name, "daemon")
+
+	def __init__(self, name, command=None):
+		self.name = name
+		self.command = command
+		assert self.name
+
+	def start(self, command=None):
+		command = command or self.command
+		if not self.Has(self.name):
+			Tmux.EnsureSession(self.name)
+			Tmux.EnsureWindow(self.name, "daemon")
+		if Tmux.IsResponsive(self.name, "daemon"):
+			if not command:
+				command = Tmux.Run(self.name, "daemon", "echo $DAEMON_COMMAND")
+			# We assume that the daemon's will not detach from tmux, so if
+			# the shell is not responsive, it means the daemon is running
+			Tmux.Write(
+				self.name,
+				"daemon",
+				'export DAEMON_COMMAND="{0}"'.format(command.replace('"', '\\"')),
+			)
+			Tmux.Write(self.name, "daemon", command)
+		return True
+
+	def stop(self):
+		if self.Has(self.name):
+			# This sends a Ctrl-C.
+			Tmux.Write(self.name, "daemon", "C-c")
+			# If the window does not become responsive after 5s, we kill the
+			# window.
+			if not Tmux.IsResponsive(self.name, "daemon", timeout=5):
+				Tmux.KillWindow(self.name, "daemon")
+			return True
+		else:
+			return False
+
+	def restart(self):
+		self.stop()
+		self.start()
+
+
+# -----------------------------------------------------------------------------
+#
+# WEB SERVICE
+#
+# -----------------------------------------------------------------------------
+
+
+class WebService(Service):
+	CONFIGURATION = {
+		"session": "webservice",
+		"port": 8000,
+		"host": "0.0.0.0",
+		"path": ".",
+		"webapp": "webapp",
+	}
+
+	def getCommand(self):
+		return self.config["command"].format(self.config)
+
+	def ensure(self):
+		"""Ensures that the service is running."""
+		session = self.config["session"]
+		path = os.path.abspath(self.config["path"])
+		Tmux.EnsureWindow(session, "webapp")
+		if Tmux.IsResponsive(session, "webapp"):
+			# If the Tmux session is responsive, we start the process
+			Tmux.Run(session, "webapp", "cd {0}".format(path))
+			Tmux.Run(
+				session,
+				"webapp",
+				"./env.sh ./{webapp} {port} {host}".format(**self.config),
+			)
+		elif not self.ping().isSuccess():
+			# If the Tmux session is not responsive and the ping does not work
+			# we kill and restart the process.
+			self.reload()
+		return self.process()
+
+	def reload(self):
+		self.stop()
+		session = self.config["session"]
+		Tmux.Run(
+			session, "webapp", "./env.sh ./{webapp} {port} {host}".format(**self.config)
+		)
+		return self.process()
+
+	def start(self):
+		return self.ensure()
+
+	def stop(self):
+		session = self.config["session"]
+		Tmux.EnsureWindow(session, "webapp")
+		p = Process.FindLike(self.config["webapp"])
+		# We kill the whole process group
+		if p:
+			Process.Kill(p[0], children=True)
+		return self.process()
+
+	def process(self):
+		return Process.FindLike(self.config["webapp"])
+
+	def ping(self):
+		return HTTP(GET="http://{host}:{port}/api/ping".format(**self.config)).run()
+
+	def status(self):
+		session = self.config["session"]
+		self.out("Tmux session      :", Tmux.HasSession(session))
+		self.out("Tmux webapp       :", Tmux.HasWindow(session, "webapp"))
+		self.out(
+			"Webapp running    :",
+			Process.FindLike(self.config["webapp"]) and True or False,
+		)
+		self.out("Webapp responsive :", self.ping().isSuccess())
 
 
 # EOF - vim: tw=80 ts=4 sw=4 noet
