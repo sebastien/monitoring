@@ -58,8 +58,8 @@ except ImportError:
 
 __version__ = "0.9.11"
 
-RE_SPACES = re.compile("\s+")
-RE_INTEGER = re.compile("\d+")
+RE_SPACES = re.compile(r"\s+")
+RE_INTEGER = re.compile(r"\d+")
 
 
 def config(variable, default, normalize=lambda _: _):
