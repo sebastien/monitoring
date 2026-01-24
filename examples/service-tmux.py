@@ -1,4 +1,4 @@
-from monitoring.service import TmuxService
+from monitoring import TmuxService
 import time
 
 service = TmuxService("monitoring-example", command="watch -n1 date")

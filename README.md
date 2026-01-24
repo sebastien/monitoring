@@ -69,6 +69,16 @@ Or using the monitoring command:
 monitoring my_monitor.py
 ```
 
+### Running with Curl
+
+If you have the repository cloned locally and want to run scripts without keeping the entire codebase installed, download the main CLI on-the-fly:
+
+```bash
+curl -s https://raw.githubusercontent.com/sebastien/monitoring/main/src/sh/monitoring.sh | bash -s examples/system-health.py
+```
+
+This downloads `monitoring.py`, pipes it to bash, and executes it with your local script, using the downloaded monitoring library.
+
 ## Examples
 
 See the `examples/` directory for more usage examples:
@@ -76,7 +86,7 @@ See the `examples/` directory for more usage examples:
 * `system-health.py`: Monitor system metrics like CPU, memory, disk usage
 * `http-latency.py`: Monitor HTTP response times
 * `http-ping-restart.py`: Ensure HTTP services stay up by restarting on failure
-* `service-tmux.py`: Run services in tmux sessions
+* `service-tmux.py`: Run services in tmux sessions (imports `TmuxService` from `monitoring`)
 
 ## API Overview
 
@@ -104,6 +114,13 @@ See the `examples/` directory for more usage examples:
 * `Run`: Execute shell commands
 * `Restart`: Restart processes
 * `Incident`: Trigger actions after multiple failures
+* `TmuxRun`: Execute commands in tmux windows
+
+### Daemon Service Classes
+
+* `DaemonService`: Base class for implementing services with start/stop/status directives
+* `TmuxService`: Manages long-running processes in tmux sessions
+* `WebService`: Manages web applications with tmux and HTTP health checks
 
 ### Utilities
 

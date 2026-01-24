@@ -556,7 +556,7 @@ class System:
 		"""Returns  CPU stats, that can be used to get the CPUUsage"""
 		# From <http://ubuntuforums.org/showthread.php?t=148781>
 		time_list = cat("/proc/stat").split("\n")[0].split(" ")[2:6]
-		res = map(int, time_list)
+		res = list(map(int, time_list))
 		cls.LAST_CPU_STAT = res
 		return res
 
@@ -586,7 +586,7 @@ class System:
 		res = {}
 		for line in cat("/proc/net/dev").split("\n")[2:-1]:
 			interface, stats = RE_SPACES.sub(" ", line).strip().split(":", 1)
-			stats = map(int, stats.strip().split(" "))
+			stats = list(map(int, stats.strip().split(" ")))
 			(
 				rx_bytes,
 				rx_pack,
@@ -1834,7 +1834,8 @@ class Monitor:
 		self.iterationLastDuration = 0
 		self.runners = {}
 		self.reactions = {}
-		map(self.addService, services)
+		for s in services:
+			self.addService(s)
 
 	def every(self, freq):
 		assert freq >= 0
@@ -1963,10 +1964,10 @@ class Monitor:
 	def _createRunner(self, runable, context, iteration, callback, id=None):
 		if id:
 			runner = context.runners.get(id)
-			if runner and runner.hasFailed():
-				raise RunnerStillRunning(runner)
-		if runner:
-			return runner
+			if runner:
+				if runner.hasFailed():
+					raise RunnerStillRunning(runner)
+				return runner
 		runner = Runner.Create(runable, context, iteration, id)
 		if runner:
 			runner.onRunEnded(callback)
@@ -2006,7 +2007,7 @@ class Monitor:
 	def getStatusMessage(self):
 		return "Iteration %s (%s rules, %s actions, %s runners)" % (
 			self.iteration,
-			len(self.runners),
+			sum(len(s.rules) for s in self.services),
 			len(self.reactions),
 			Runner.POOL.size(),
 		)
@@ -2020,6 +2021,20 @@ class Monitor:
 
 
 class Service:
+	"""A service represents a collection of monitoring rules."""
+
+	def __init__(self, name, monitor):
+		self.name = name
+		self.rules = list(monitor)
+		self.runners = {}
+
+	def getFrequency(self):
+		if not self.rules:
+			return 0
+		return min(r.getFrequency() for r in self.rules)
+
+
+class DaemonService:
 	"""A minimal class to implement services that support start/stop/status
 	directives."""
 
@@ -2098,7 +2113,7 @@ class Service:
 # -----------------------------------------------------------------------------
 
 
-class TmuxService(Service):
+class TmuxService(DaemonService):
 	"""Creates long-running process running within a dedicated Tmux
 	session. This allows to interactively query/manipulate
 	processes within a tmux shell."""
@@ -2158,7 +2173,7 @@ class TmuxService(Service):
 # -----------------------------------------------------------------------------
 
 
-class WebService(Service):
+class WebService(DaemonService):
 	CONFIGURATION = {
 		"session": "webservice",
 		"port": 8000,
